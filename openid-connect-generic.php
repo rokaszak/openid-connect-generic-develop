@@ -16,7 +16,7 @@
  * Plugin Name:       Airomi Connect
  * Plugin URI:        https://airomi.lt
  * Description:       Connect to an OpenID Connect identity provider using Authorization Code Flow.
- * Version:           3.10.0
+ * Version:           3.2.1
  * Requires at least: 5.0
  * Requires PHP:      7.4
  * Author:            Rokas Zakarauskas
@@ -169,7 +169,9 @@ class OpenID_Connect_Generic
 		// Register WooCommerce integration if enabled and WooCommerce is active.
 		if (
 			class_exists('WooCommerce') &&
-			(!empty($this->settings->enable_woocommerce_oidc) || !empty($this->settings->disable_woocommerce_password_auth))
+			(!empty($this->settings->enable_woocommerce_oidc) || 
+			 !empty($this->settings->disable_woocommerce_password_auth) ||
+			 !empty($this->settings->disable_woocommerce_edit_account_fields))
 		) {
 			OpenID_Connect_Generic_WooCommerce_Integration::register($this->settings, $this->client_wrapper);
 		}
@@ -463,8 +465,10 @@ class OpenID_Connect_Generic
 				'disable_password_reset' => 0,
 				'enable_woocommerce_oidc' => 0,
 				'disable_woocommerce_password_auth' => 0,
+				'disable_woocommerce_edit_account_fields' => 0,
 				'login_button_text' => '',
 				'login_button_image_id' => 0,
+				'sync_userinfo_button_text' => '',
 
 				// Role mapping settings.
 				'enable_role_mapping' => 0,

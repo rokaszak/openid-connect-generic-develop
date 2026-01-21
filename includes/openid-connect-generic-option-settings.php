@@ -60,8 +60,11 @@
  * @property bool   $disable_password_reset            The flag to disable password reset functionality.
  * @property bool   $enable_woocommerce_oidc           The flag to enable OIDC button on WooCommerce forms.
  * @property bool   $disable_woocommerce_password_auth The flag to disable WooCommerce password authentication.
+ * @property bool   $disable_woocommerce_edit_account_fields The flag to disable password, email, and name fields in WooCommerce edit account form.
  * @property string $login_button_text                 Custom text for the login button.
  * @property int    $login_button_image_id             Attachment ID for optional login button logo.
+ * @property string $sync_userinfo_button_text        Custom text for the sync userinfo button.
+ * @property string $sync_userinfo_success_message    Custom success message displayed after syncing user info.
  *
  * Role Mapping Settings:
  *

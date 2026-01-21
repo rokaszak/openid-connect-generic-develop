@@ -461,6 +461,26 @@ class OpenID_Connect_Generic_Settings_Page {
 			'type'        => 'checkbox',
 			'section'     => 'authorization_settings',
 		),
+		'disable_woocommerce_edit_account_fields'   => array(
+			'title'       => __( 'Disable WooCommerce Edit Account Fields', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Remove password, email, first name, and last name fields from WooCommerce edit account form. Users can sync their information from OpenID Connect instead.', 'daggerhart-openid-connect-generic' ),
+			'type'        => 'checkbox',
+			'section'     => 'authorization_settings',
+		),
+		'sync_userinfo_button_text'   => array(
+			'title'       => __( 'Sync User Info Button Text', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Customize the text displayed on the sync userinfo button in WooCommerce edit account form.', 'daggerhart-openid-connect-generic' ),
+			'example'     => 'Sync User Info',
+			'type'        => 'text',
+			'section'     => 'authorization_settings',
+		),
+		'sync_userinfo_success_message'   => array(
+			'title'       => __( 'Sync User Info Success Message', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Customize the success message displayed after successfully syncing user information from OpenID Connect.', 'daggerhart-openid-connect-generic' ),
+			'example'     => 'User information synced successfully from OpenID Connect.',
+			'type'        => 'text',
+			'section'     => 'authorization_settings',
+		),
 		'login_button_text'   => array(
 			'title'       => __( 'Login Button Text', 'daggerhart-openid-connect-generic' ),
 			'description' => __( 'Customize the text displayed on the OpenID Connect login button.', 'daggerhart-openid-connect-generic' ),

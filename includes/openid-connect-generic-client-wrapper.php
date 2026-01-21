@@ -259,7 +259,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 		);
 
 		$url = apply_filters('openid-connect-generic-auth-url', $url);
-		$this->logger->log($url, 'make_authentication_url', null);
 		return $url;
 	}
 
@@ -844,6 +843,40 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return null;
 		}
 		return $this->token_storage->get_token($token);
+	}
+
+	/**
+	 * Get the current user's token response from storage.
+	 * Public method for use by integrations.
+	 *
+	 * @param int $user_id The user ID.
+	 *
+	 * @return array|null Token response array or null if not found.
+	 */
+	public function get_current_user_token_response($user_id)
+	{
+		return $this->get_token_response_from_storage($user_id);
+	}
+
+	/**
+	 * Get the client instance.
+	 * Public method for use by integrations.
+	 *
+	 * @return OpenID_Connect_Generic_Client The client instance.
+	 */
+	public function get_client()
+	{
+		return $this->client;
+	}
+
+	/**
+	 * Get the logger instance.
+	 *
+	 * @return OpenID_Connect_Generic_Option_Logger
+	 */
+	public function get_logger()
+	{
+		return $this->logger;
 	}
 
 	/**
