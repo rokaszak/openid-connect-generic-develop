@@ -1,0 +1,138 @@
+#logger-table .col-data {
+	width: 85%
+}
+
+#logger-table .col-data pre {
+	margin: 0;
+	white-space: pre;           /* CSS 2.0 */
+	white-space: pre-wrap;      /* CSS 2.1 */
+	white-space: pre-line;      /* CSS 3.0 */
+	white-space: -pre-wrap;     /* Opera 4-6 */
+	white-space: -o-pre-wrap;   /* Opera 7 */
+	white-space: -moz-pre-wrap; /* Mozilla */
+	white-space: -hp-pre-wrap;  /* HP Printers */
+	word-wrap: break-word;      /* IE 5+ */
+}
+
+#logger-table .col-details {
+	width: 200px;
+}
+
+#logger-table .col-details div {
+	padding: 4px 0;
+	border-bottom: 1px solid #bbb;
+}
+
+#logger-table .col-details div:last-child {
+	border-bottom: none;
+}
+
+#logger-table .col-details label {
+	font-weight: bold;
+}
+
+/* Role Mappings Repeater */
+.oidc-role-mappings-repeater {
+	max-width: 800px;
+}
+
+.oidc-role-mappings-rows {
+	margin-bottom: 10px;
+}
+
+.oidc-role-mapping-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 10px;
+	padding: 10px;
+	background: #f9f9f9;
+	border: 1px solid #ddd;
+	border-radius: 3px;
+}
+
+.oidc-role-mapping-row input.oidc-claim-value {
+	flex: 1;
+	min-width: 200px;
+}
+
+.oidc-role-mapping-row .oidc-arrow {
+	color: #666;
+	font-weight: bold;
+	font-size: 16px;
+}
+
+.oidc-role-mapping-row select.oidc-wp-role {
+	flex: 1;
+	min-width: 150px;
+}
+
+.oidc-role-mapping-row .oidc-remove-row {
+	flex-shrink: 0;
+	color: #a00;
+	border-color: #a00;
+}
+
+.oidc-role-mapping-row .oidc-remove-row:hover {
+	background: #a00;
+	color: #fff;
+	border-color: #a00;
+}
+
+.oidc-add-row {
+	margin-top: 5px;
+}
+
+/* Image Picker */
+.oidc-image-picker-wrapper {
+	max-width: 600px;
+}
+
+.oidc-image-preview {
+	margin-bottom: 10px;
+	min-height: 20px;
+}
+
+.oidc-image-preview img {
+	border: 1px solid #ddd;
+	border-radius: 3px;
+	padding: 5px;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.oidc-select-image {
+	margin-right: 10px;
+}
+
+.oidc-remove-image {
+	color: #a00;
+	border-color: #a00;
+}
+
+.oidc-remove-image:hover {
+	background: #a00;
+	color: #fff;
+	border-color: #a00;
+}
+
+/* Login Button with Logo */
+.openid-connect-login-button a.button img {
+	display: inline-block;
+	vertical-align: middle;
+	margin-right: 8px;
+}
+
+/* WooCommerce Button Styling */
+.woocommerce .openid-connect-login-button,
+.woocommerce-page .openid-connect-login-button {
+	margin: 1em 0;
+	text-align: center;
+}
+
+.woocommerce .button.woocommerce-button img,
+.woocommerce-page .button.woocommerce-button img {
+	display: inline-block;
+	vertical-align: middle;
+	margin-right: 8px;
+}

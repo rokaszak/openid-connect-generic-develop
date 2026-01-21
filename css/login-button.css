@@ -1,0 +1,51 @@
+/**
+ * OpenID Connect Generic - Login Button Styles
+ *
+ * Clean, simple flexbox-based button with logo and text.
+ * Fully customizable via external CSS - no !important rules.
+ *
+ * @package   OpenID_Connect_Generic
+ * @category  Styles
+ */
+
+/* Login Button Container */
+.openid-connect-login-button {
+	margin: 1em 0;
+	text-align: center;
+}
+
+/* Button Base - Simple Flexbox Layout */
+.openid-connect-login-button .button,
+.openid-connect-login-button .woocommerce-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.75rem;
+	text-decoration: none;
+	transition: all 0.3s ease;
+}
+
+/* Text Container (comes first by default) */
+.openid-connect-login-button__text {
+	line-height: 1.5;
+}
+
+/* Logo Container (comes after text by default) */
+.openid-connect-login-button__logo {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 1.5rem;
+	height: 1.5rem;
+}
+
+/* Logo Image - Dynamic sizing with object-fit */
+.openid-connect-login-button__logo-img {
+	max-width: 100%;
+	max-height: 100%;
+	width: auto;
+	height: auto;
+	object-fit: contain;
+	display: block;
+}
