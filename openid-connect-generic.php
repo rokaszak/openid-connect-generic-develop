@@ -16,7 +16,7 @@
  * Plugin Name:       Airomi Connect
  * Plugin URI:        https://airomi.lt
  * Description:       Connect to an OpenID Connect identity provider using Authorization Code Flow.
- * Version:           3.2.1
+ * Version:           3.3.0
  * Requires at least: 5.0
  * Requires PHP:      7.4
  * Author:            Rokas Zakarauskas
@@ -286,6 +286,7 @@ class OpenID_Connect_Generic
 			token_issued_at INT UNSIGNED NOT NULL DEFAULT 0,
 			session_expiration INT UNSIGNED NOT NULL DEFAULT 0,
 			last_userinfo_check INT UNSIGNED NOT NULL DEFAULT 0,
+			refresh_started_at INT UNSIGNED DEFAULT NULL,
 			PRIMARY KEY (wp_session_token),
 			KEY user_id (user_id),
 			KEY session_expiration (session_expiration)
@@ -293,6 +294,37 @@ class OpenID_Connect_Generic
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta($sql);
+	}
+
+	/**
+	 * Add refresh_started_at column to token table for existing installs.
+	 *
+	 * @return void
+	 */
+	public static function maybe_add_refresh_started_at_column()
+	{
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'oidc_session_tokens';
+		$column = $wpdb->get_row($wpdb->prepare(
+			'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s',
+			DB_NAME,
+			$table_name,
+			'refresh_started_at'
+		));
+		if (empty($column)) {
+			$wpdb->query("ALTER TABLE {$table_name} ADD COLUMN refresh_started_at INT UNSIGNED DEFAULT NULL");
+		}
+	}
+
+	/**
+	 * Remove legacy refresh lock options from wp_options (pre stamp-guard locking).
+	 *
+	 * @return void
+	 */
+	public static function cleanup_legacy_refresh_lock_options()
+	{
+		global $wpdb;
+		$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_oidc_refresh_lock_%'");
 	}
 
 	/**
@@ -309,6 +341,8 @@ class OpenID_Connect_Generic
 			// An upgrade is required.
 			self::setup_cron_jobs();
 			self::create_token_table();
+			self::maybe_add_refresh_started_at_column();
+			self::cleanup_legacy_refresh_lock_options();
 
 			// @todo move this to another file for upgrade scripts
 			if (isset($settings->ep_login)) {

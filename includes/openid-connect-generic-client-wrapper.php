@@ -30,13 +30,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 	const COOKIE_REDIRECT_KEY = 'openid-connect-generic-redirect';
 
 	/**
-	 * The token refresh info cookie key.
-	 *
-	 * @var string
-	 */
-	const COOKIE_TOKEN_REFRESH_KEY = 'openid-connect-generic-refresh';
-
-	/**
 	 * The client object instance.
 	 *
 	 * @var OpenID_Connect_Generic_Client
@@ -375,6 +368,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return;
 		}
 
+		// Skip if token refresh is disabled in settings.
+		if (!$this->settings->token_refresh_enable) {
+			return;
+		}
+
 		$user_id = wp_get_current_user()->ID;
 		$token = wp_get_session_token();
 		if (empty($token)) {
@@ -405,28 +403,22 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return;
 		}
 
-		// Check for corrupted token data (error responses).
-		if (isset($last_token_response['error']) || isset($last_token_response['detail'])) {
-			$user = get_user_by('id', $user_id);
-			$this->logger->log(
-				array(
-					'type' => 'logout_corrupted_token_data',
-					'user_id' => $user_id,
-					'username' => $user ? $user->user_login : 'unknown',
-					'reason' => 'Corrupted token data detected (error response saved instead of valid tokens)',
-					'token_state' => $last_token_response,
-					'error' => $last_token_response['error'] ?? $last_token_response['detail'] ?? 'Unknown',
-				),
-				'logout_corrupted_token',
-				null
-			);
-			wp_logout();
-			return;
+		// Check local expiration first (free) before making any HTTP calls.
+		if (!empty($last_token_response['expires_in']) && !empty($last_token_response['token_issued_at'])) {
+			$expiration_time = intval($last_token_response['token_issued_at']) + intval($last_token_response['expires_in']);
+			if (time() >= $expiration_time) {
+				// On AJAX, skip refresh if token expired less than 30s ago; let the next page load handle it.
+				if (function_exists('wp_doing_ajax') && wp_doing_ajax() && (time() - $expiration_time) < 30) {
+					return;
+				}
+				$this->refresh_access_token($user_id);
+				return;
+			}
 		}
 
-		// Check if we should validate the token (default: every 10 minutes).
+		// Token is not expired locally. Periodically validate with userinfo endpoint
+		// to catch server-side revocations (default: every 10 minutes).
 		$last_userinfo_check = $last_token_response['last_userinfo_check'] ?? 0;
-		// Use setting value if configured, otherwise default to 10 minutes.
 		$check_interval = !empty($this->settings->userinfo_check_interval)
 			? intval($this->settings->userinfo_check_interval)
 			: 10 * MINUTE_IN_SECONDS;
@@ -434,20 +426,14 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$time_since_last_check = time() - intval($last_userinfo_check);
 		$should_validate = $time_since_last_check > $check_interval;
 
-		// Get expiry info for logging.
-		$expiry_info = $this->get_expiry_info_for_logging($user_id, $last_token_response);
-
-		// Always validate with userinfo endpoint to catch server-side revocations.
 		if ($should_validate && !empty($this->settings->endpoint_userinfo)) {
 			$userinfo_result = $this->client->request_userinfo($last_token_response['access_token']);
 
 			if (is_wp_error($userinfo_result)) {
-				// Check if this is a network error or an authentication error.
 				$error_code = $userinfo_result->get_error_code();
 				$is_network_error = $this->is_network_timeout_error($error_code, $userinfo_result);
 
 				if ($is_network_error) {
-					// Network/timeout error - don't attempt refresh. Keep session alive.
 					$this->logger->log(
 						array(
 							'type' => 'userinfo_network_error',
@@ -458,11 +444,10 @@ class OpenID_Connect_Generic_Client_Wrapper
 						'ensure_tokens_still_fresh_network_error',
 						null
 					);
-					// Update last_userinfo_check timestamp in database.
 					$token_data = $last_token_response;
 					$token_data['last_userinfo_check'] = time();
 					$this->token_storage->save_token($token, $user_id, $token_data);
-					return; // Keep session alive, don't attempt refresh.
+					return;
 				}
 
 				// Authentication or other error - attempt token refresh.
@@ -475,24 +460,13 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$token_data['last_userinfo_check'] = time();
 			$this->token_storage->save_token($token, $user_id, $token_data);
 		}
-
-		// Check if token expired based on local expiration timestamp.
-		if (!empty($last_token_response['expires_in']) && !empty($last_token_response['token_issued_at'])) {
-			$expiration_time = intval($last_token_response['token_issued_at']) + intval($last_token_response['expires_in']);
-			if (time() >= $expiration_time) {
-				// Token expired, attempt refresh.
-				$this->refresh_access_token($user_id);
-				return;
-			}
-		}
 	}
 
 	/**
 	 * Refresh the access token using the refresh token.
 	 *
-	 * On success, updates database with new tokens and extends WordPress session expiration
-	 * to match new token lifetime. Uses distributed locking to prevent race conditions when
-	 * multiple browser tabs attempt to refresh the same token simultaneously.
+	 * Uses a stamp in the token table so only one request performs the refresh;
+	 * others return immediately. No locking, sleeping, or polling.
 	 *
 	 * @param int $user_id The WordPress user ID.
 	 *
@@ -500,7 +474,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 	 */
 	private function refresh_access_token($user_id)
 	{
-		// Get the refresh token from database.
 		$token = wp_get_session_token();
 		if (empty($token)) {
 			return;
@@ -508,10 +481,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		$current_token_data = $this->token_storage->get_token($token);
 		if (empty($current_token_data)) {
-			// Not an OpenID-based session, logout.
 			$user = get_user_by('id', $user_id);
 			$expiry_info = $this->get_expiry_info_for_logging($user_id, null);
-
 			$this->logger->log(
 				array(
 					'type' => 'logout_no_refresh_token_in_session',
@@ -530,10 +501,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		$refresh_token = $current_token_data['refresh_token'] ?? null;
 		if (empty($refresh_token)) {
-			// No valid refresh token, logout.
 			$user = get_user_by('id', $user_id);
 			$expiry_info = $this->get_expiry_info_for_logging($user_id, $current_token_data);
-
 			$this->logger->log(
 				array(
 					'type' => 'logout_empty_refresh_token',
@@ -550,127 +519,27 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return;
 		}
 
-		$lock_key = 'oidc_refresh_lock_' . md5($token);
-		$lock_timeout = 30; // seconds - timeout for the lock
-
-		// Try to acquire the lock using atomic operation.
-		// add_transient returns false if the transient already exists.
-		global $wpdb;
-		$lock_acquired = $wpdb->query(
-			$wpdb->prepare(
-				"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload)
-				VALUES (%s, %s, 'no')",
-				'_transient_' . $lock_key,
-				time() + $lock_timeout
-			)
-		);
-
-		if (!$lock_acquired) {
-			// Another request is already refreshing. Wait and check for updated tokens.
+		if (!$this->token_storage->claim_refresh($token, 30)) {
 			$this->logger->log(
 				array(
-					'type' => 'refresh_lock_wait',
+					'type' => 'refresh_deferred',
 					'user_id' => $user_id,
-					'message' => 'Another request is refreshing tokens, waiting...',
+					'message' => 'Another request is refreshing token, skipping',
 				),
-				'refresh_access_token_lock',
+				'refresh_access_token',
 				null
 			);
-
-			// Wait briefly for the other request to complete (max 5 seconds).
-			$wait_start = time();
-			$max_wait = 5;
-			while (time() - $wait_start < $max_wait) {
-				usleep(200000); // 200ms
-
-				// Check if the lock has been released.
-				$lock_value = get_option('_transient_' . $lock_key);
-				if (empty($lock_value) || $lock_value < time()) {
-					break; // Lock released or expired.
-				}
-			}
-
-			// Re-read the token from database - it may have been refreshed.
-			$refreshed_token_data = $this->token_storage->get_token($token);
-			if (!empty($refreshed_token_data)) {
-				$new_refresh_token = $refreshed_token_data['refresh_token'] ?? null;
-				$new_token_issued_at = $refreshed_token_data['token_issued_at'] ?? 0;
-				$old_token_issued_at = $current_token_data['token_issued_at'] ?? 0;
-
-				// If the token was updated (different refresh token or newer issue time), use it.
-				if ($new_refresh_token !== $refresh_token || $new_token_issued_at > $old_token_issued_at) {
-					$this->logger->log(
-						array(
-							'type' => 'refresh_race_condition_avoided',
-							'user_id' => $user_id,
-							'message' => 'Token was refreshed by another request, using updated token',
-							'old_token_issued_at' => $old_token_issued_at,
-							'new_token_issued_at' => $new_token_issued_at,
-						),
-						'refresh_access_token_race_avoided',
-						null
-					);
-					return; // Token was refreshed by another request, we're done.
-				}
-			}
-
-			// Token wasn't updated, try to acquire lock again for retry.
-			$lock_acquired = $wpdb->query(
-				$wpdb->prepare(
-					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload)
-					VALUES (%s, %s, 'no')",
-					'_transient_' . $lock_key,
-					time() + $lock_timeout
-				)
-			);
-
-			if (!$lock_acquired) {
-				// Still can't get lock, just return without logout - another request is handling it.
-				$this->logger->log(
-					array(
-						'type' => 'refresh_lock_contention',
-						'user_id' => $user_id,
-						'message' => 'Could not acquire refresh lock, deferring to other request',
-					),
-					'refresh_access_token_lock_contention',
-					null
-				);
-				return;
-			}
-
-			// Re-read token data after acquiring lock (may have been updated).
-			$current_token_data = $this->token_storage->get_token($token);
-			if (empty($current_token_data) || empty($current_token_data['refresh_token'])) {
-				delete_option('_transient_' . $lock_key);
-				return;
-			}
-			$refresh_token = $current_token_data['refresh_token'];
+			return;
 		}
 
-		// We have the lock - proceed with refresh.
-		// Make sure to release the lock when done.
 		try {
-			// Log current token state before refresh attempt.
-			$this->logger->log(
-				array(
-					'type' => 'token_state_before_refresh',
-					'user_id' => $user_id,
-					'full_token_response' => $current_token_data,
-					'lock_acquired' => true,
-				),
-				'refresh_token_state_before',
-				null
-			);
-
 			$token_result = $this->client->request_new_tokens($refresh_token);
 
 			if (is_wp_error($token_result)) {
-				// Check if this is a network/timeout error vs authentication error.
 				$error_code = $token_result->get_error_code();
 				$is_network_error = $this->is_network_timeout_error($error_code, $token_result);
 
 				if ($is_network_error) {
-					// Network timeout - don't logout. Keep session alive.
 					$this->logger->log(
 						array(
 							'type' => 'token_refresh_network_error',
@@ -681,13 +550,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 						'refresh_access_token_network_error',
 						null
 					);
-					delete_option('_transient_' . $lock_key);
 					return;
 				}
 
 				$user = get_user_by('id', $user_id);
 				$expiry_info = $this->get_expiry_info_for_logging($user_id, $current_token_data);
-
 				$this->logger->log(
 					array(
 						'type' => 'logout_token_refresh_http_error',
@@ -702,46 +569,34 @@ class OpenID_Connect_Generic_Client_Wrapper
 					'logout_http_error',
 					null
 				);
-				delete_option('_transient_' . $lock_key);
 				wp_logout();
 				return;
 			}
 
 			$token_response = $this->client->get_token_response($token_result);
 			if (is_wp_error($token_response)) {
-				// Check if this is a 401 error - might be a race condition where another
-				// request already refreshed the token (and invalidated our refresh token).
 				$error_code = $token_response->get_error_code();
 				if ('http-error-401' === $error_code) {
-					// Re-read token from database to check if it was refreshed by another request.
 					$refreshed_token_data = $this->token_storage->get_token($token);
 					if (!empty($refreshed_token_data)) {
 						$new_refresh_token = $refreshed_token_data['refresh_token'] ?? null;
 						$new_token_issued_at = $refreshed_token_data['token_issued_at'] ?? 0;
 						$old_token_issued_at = $current_token_data['token_issued_at'] ?? 0;
-
-						// If the token was updated, another request refreshed it successfully.
 						if ($new_refresh_token !== $refresh_token || $new_token_issued_at > $old_token_issued_at) {
 							$this->logger->log(
 								array(
-									'type' => 'refresh_race_condition_recovered',
+									'type' => 'refresh_race_recovered',
 									'user_id' => $user_id,
 									'message' => '401 during refresh but token was updated by another request',
-									'old_refresh_token' => substr($refresh_token, 0, 10) . '...',
-									'new_refresh_token' => substr($new_refresh_token, 0, 10) . '...',
-									'old_token_issued_at' => $old_token_issued_at,
-									'new_token_issued_at' => $new_token_issued_at,
 								),
-								'refresh_access_token_race_recovered',
+								'refresh_access_token',
 								null
 							);
-							delete_option('_transient_' . $lock_key);
-							return; // Token was refreshed by another request, we're fine.
+							return;
 						}
 					}
 				}
 
-				// Genuine refresh failure, logout user.
 				$expiry_info = $this->get_expiry_info_for_logging($user_id, $current_token_data);
 				$this->logger->log(
 					array(
@@ -756,18 +611,12 @@ class OpenID_Connect_Generic_Client_Wrapper
 					'logout_token_response_error',
 					null
 				);
-				delete_option('_transient_' . $lock_key);
 				wp_logout();
 				return;
 			}
 
-			// Capture the time so that access token expiration can be calculated later.
 			$token_response['time'] = time();
-
-			// Calculate session expiration based on OIDC token lifetime.
 			$session_expiration = $this->get_wp_session_expiration_from_oidc($token_response);
-
-			// Prepare token data for database storage.
 			$token_data = array(
 				'access_token' => $token_response['access_token'] ?? '',
 				'refresh_token' => $token_response['refresh_token'] ?? null,
@@ -778,27 +627,13 @@ class OpenID_Connect_Generic_Client_Wrapper
 				'last_userinfo_check' => time(),
 			);
 
-			// Save to database using atomic INSERT...ON DUPLICATE KEY UPDATE.
-			$success = $this->token_storage->save_token($token, $user_id, $token_data);
-			if (!$success) {
-				$this->logger->log(
-					array(
-						'type' => 'token_save_warning',
-						'user_id' => $user_id,
-						'message' => 'Failed to save refreshed tokens to database',
-					),
-					'refresh_access_token',
-					null
-				);
-			}
+			$this->token_storage->save_token($token, $user_id, $token_data);
 
-			// Update WordPress session expiration to match OIDC token lifetime.
 			$manager = WP_Session_Tokens::get_instance($user_id);
 			$session = $manager->get($token);
 			if (!empty($session)) {
 				$session['expiration'] = $session_expiration;
 				$manager->update($token, $session);
-				
 				$cookie_expiration_duration = $session_expiration - time();
 				$filter_callback = function ($expiration_time, $filter_user_id, $remember) use ($cookie_expiration_duration, $user_id) {
 					if ($filter_user_id === $user_id) {
@@ -807,25 +642,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 					return $expiration_time;
 				};
 				add_filter('auth_cookie_expiration', $filter_callback, 999, 3);
-				
 				wp_set_auth_cookie($user_id, true, '', $token);
-				
 				remove_filter('auth_cookie_expiration', $filter_callback, 999);
 			}
-
-			// Log the new tokens after refresh.
-			$this->logger->log(
-				array(
-					'type' => 'token_state_after_refresh',
-					'user_id' => $user_id,
-					'full_token_response' => $token_response,
-				),
-				'refresh_token_state_after',
-				null
-			);
 		} finally {
-			// Always release the lock.
-			delete_option('_transient_' . $lock_key);
+			$this->token_storage->release_refresh($token);
 		}
 	}
 
@@ -880,23 +701,21 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 	/**
-	 * Save token response to database storage.
+	 * Save OIDC token response to the database.
 	 *
-	 * @param int   $user_id        The user ID.
-	 * @param array $token_response The token response to save.
+	 * @param string $token          The WordPress session token.
+	 * @param int    $user_id        The user ID.
+	 * @param array  $token_response The OIDC token response.
 	 * @return void
 	 */
-	private function save_token_response_to_storage($user_id, $token_response)
+	private function save_token_to_db($token, $user_id, $token_response)
 	{
-		$token = wp_get_session_token();
 		if (empty($token) || empty($user_id)) {
 			return;
 		}
 
-		// Calculate session expiration based on OIDC token lifetime.
 		$session_expiration = $this->get_wp_session_expiration_from_oidc($token_response);
 
-		// Prepare token data for storage.
 		$token_data = array(
 			'access_token' => $token_response['access_token'] ?? '',
 			'refresh_token' => $token_response['refresh_token'] ?? null,
@@ -913,9 +732,9 @@ class OpenID_Connect_Generic_Client_Wrapper
 				array(
 					'type' => 'token_save_warning',
 					'user_id' => $user_id,
-					'message' => 'Failed to save token response to database',
+					'message' => 'Failed to save tokens to database',
 				),
-				'save_token_response_to_storage',
+				'save_token_to_db',
 				null
 			);
 		}
@@ -1080,53 +899,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 		}
 
 		return '';
-	}
-
-	/**
-	 * Handle the logout redirect for end_session endpoint.
-	 *
-	 * @param string  $redirect_url          The requested redirect URL.
-	 * @param string  $requested_redirect_to The user login source URL, or configured user redirect URL.
-	 * @param WP_User $user                  The logged in user object.
-	 *
-	 * @return string
-	 */
-	public function get_end_session_logout_redirect_url($redirect_url, $requested_redirect_to, $user)
-	{
-		$url = $this->settings->endpoint_end_session;
-		$query = parse_url($url, PHP_URL_QUERY);
-		$url .= $query ? '&' : '?';
-
-		// Prevent redirect back to the IDP when logging out in auto mode.
-		if ('auto' === $this->settings->login_type && strpos($redirect_url, 'wp-login.php?loggedout=true')) {
-			// By default redirect back to the site home.
-			$redirect_url = home_url();
-		}
-
-		$token_response = $this->get_token_response_from_storage($user->ID);
-		if (!$token_response) {
-			// Happens if non-openid login was used.
-			return $redirect_url;
-		} else if (!parse_url($redirect_url, PHP_URL_HOST)) {
-			// Convert to absolute url if needed, site_url() to be friendly with non-standard (Bedrock) layout.
-			$redirect_url = site_url($redirect_url);
-		}
-
-		$claim = $user->get('openid-connect-generic-last-id-token-claim');
-
-		if (isset($claim['iss']) && 'https://accounts.google.com' == $claim['iss']) {
-			/*
-			 * Google revoke endpoint
-			 * 1. expects the *access_token* to be passed as "token"
-			 * 2. does not support redirection (post_logout_redirect_uri)
-			 * So just redirect to regular WP logout URL.
-			 * (we would *not* disconnect the user from any Google service even
-			 * if he was initially disconnected to them)
-			 */
-			return $redirect_url;
-		} else {
-			return $url . sprintf('id_token_hint=%s&post_logout_redirect_uri=%s', $token_response['id_token'], urlencode($redirect_url));
-		}
 	}
 
 	/**
@@ -1381,8 +1153,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 		// Capture the time so that access token expiration can be calculated later.
 		$token_response['time'] = time();
 
-		// Store the tokens in session for future reference.
-		$this->save_token_response_to_storage($user->ID, $token_response);
+		// Store the tokens in database.
+		$this->save_token_to_db(wp_get_session_token(), $user->ID, $token_response);
 		update_user_meta($user->ID, 'openid-connect-generic-last-id-token-claim', $id_token_claim);
 		update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $user_claim);
 
@@ -1405,7 +1177,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 		// Capture the time so that access token expiration can be calculated later.
 		$token_response['time'] = time();
 
-		// Store the tokens will be saved via save_refresh_token.
 		update_user_meta($user->ID, 'openid-connect-generic-last-id-token-claim', $id_token_claim);
 		update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $user_claim);
 
@@ -1443,8 +1214,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$manager = WP_Session_Tokens::get_instance($user->ID);
 		$token = $manager->create($expiration);
 
-		// Save the refresh token in the session.
-		$this->save_refresh_token($manager, $token, $token_response, $user->ID);
+		// Save OIDC tokens to database.
+		$this->save_token_to_db($token, $user->ID, $token_response);
 
 
 		$cookie_expiration_duration = $expiration - time();
@@ -1460,54 +1231,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		remove_filter('auth_cookie_expiration', $filter_callback, 999);
 		do_action('wp_login', $user->user_login, $user);
-	}
-
-	/**
-	 * Save all OIDC tokens to database.
-	 *
-	 * @param WP_Session_Tokens   $manager        A user session tokens manager.
-	 * @param string              $token          The current users session token.
-	 * @param array|WP_Error|null $token_response The authentication token response.
-	 * @param int                 $user_id        The WordPress user ID.
-	 */
-	public function save_refresh_token($manager, $token, $token_response, $user_id): void
-	{
-		if (!$this->settings->token_refresh_enable) {
-			return;
-		}
-
-		if (empty($user_id) || empty($token)) {
-			return;
-		}
-
-		// Calculate session expiration based on OIDC token lifetime.
-		$session_expiration = $this->get_wp_session_expiration_from_oidc($token_response);
-
-		// Prepare token data for storage.
-		$token_data = array(
-			'access_token' => $token_response['access_token'] ?? '',
-			'refresh_token' => $token_response['refresh_token'] ?? null,
-			'id_token' => $token_response['id_token'] ?? null,
-			'expires_in' => isset($token_response['expires_in']) ? intval($token_response['expires_in']) : 0,
-			'token_issued_at' => isset($token_response['time']) ? intval($token_response['time']) : time(),
-			'session_expiration' => $session_expiration,
-			'last_userinfo_check' => time(),
-		);
-
-		// Save to database using atomic INSERT...ON DUPLICATE KEY UPDATE.
-		$success = $this->token_storage->save_token($token, $user_id, $token_data);
-		if (!$success) {
-			$this->logger->log(
-				array(
-					'type' => 'token_save_warning',
-					'user_id' => $user_id,
-					'message' => 'Failed to save tokens to database',
-				),
-				'save_refresh_token',
-				null
-			);
-		}
-		return;
 	}
 
 	/**

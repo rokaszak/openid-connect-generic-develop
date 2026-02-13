@@ -235,6 +235,62 @@ class OpenID_Connect_Generic_Token_Storage {
 	}
 
 	/**
+	 * Claim the refresh stamp for this session (atomic). Only one request can win.
+	 *
+	 * @param string $wp_session_token The WordPress session token.
+	 * @param int    $timeout          Seconds after which a stale stamp can be reclaimed. Default 30.
+	 * @return bool True if this request won the stamp (rows affected = 1), false otherwise.
+	 */
+	public function claim_refresh( $wp_session_token, $timeout = 30 ) {
+		global $wpdb;
+
+		if ( empty( $wp_session_token ) ) {
+			return false;
+		}
+
+		$table_name = $this->get_table_name();
+		$stale_before = time() - $timeout;
+
+		$rows = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table_name} SET refresh_started_at = %d
+				WHERE wp_session_token = %s
+				AND (refresh_started_at IS NULL OR refresh_started_at < %d)",
+				time(),
+				$wp_session_token,
+				$stale_before
+			)
+		);
+
+		return $rows === 1;
+	}
+
+	/**
+	 * Release the refresh stamp for this session.
+	 *
+	 * @param string $wp_session_token The WordPress session token.
+	 * @return bool True on success.
+	 */
+	public function release_refresh( $wp_session_token ) {
+		global $wpdb;
+
+		if ( empty( $wp_session_token ) ) {
+			return false;
+		}
+
+		$table_name = $this->get_table_name();
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table_name} SET refresh_started_at = NULL WHERE wp_session_token = %s",
+				$wp_session_token
+			)
+		);
+
+		return true;
+	}
+
+	/**
 	 * Clean up expired tokens from the database.
 	 *
 	 * Deletes tokens where session_expiration < current timestamp.
