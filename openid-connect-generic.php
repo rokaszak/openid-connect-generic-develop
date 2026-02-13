@@ -91,7 +91,7 @@ class OpenID_Connect_Generic
 	 *
 	 * @var string
 	 */
-	const VERSION = '3.10.0';
+	const VERSION = '3.30.0';
 
 	/**
 	 * Plugin settings.
