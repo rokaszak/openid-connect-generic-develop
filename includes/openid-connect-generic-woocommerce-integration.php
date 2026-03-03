@@ -81,7 +81,34 @@ class OpenID_Connect_Generic_WooCommerce_Integration {
 			add_action( 'template_redirect', array( $integration, 'handle_sync_userinfo' ) );
 		}
 
+		// Store OpenID Connect sub in order meta when a logged-in OIDC user places an order.
+		add_action( 'woocommerce_checkout_create_order', array( $integration, 'save_oidc_sub_to_order_meta' ), 10, 2 );
+
 		return $integration;
+	}
+
+	/**
+	 * Save the OpenID Connect subject (sub) to order meta when a logged-in OIDC user places an order.
+	 *
+	 * @param WC_Order $order Order object.
+	 * @param array    $data  Checkout form data (unused).
+	 *
+	 * @return void
+	 */
+	public function save_oidc_sub_to_order_meta( $order, $data = array() ) {
+		if ( ! $order instanceof WC_Order ) {
+			return;
+		}
+
+		$user_id = $order->get_customer_id();
+		if ( ! $user_id ) {
+			return;
+		}
+
+		$oidc_sub = get_user_meta( $user_id, 'openid-connect-generic-subject-identity', true );
+		if ( ! empty( $oidc_sub ) ) {
+			$order->update_meta_data( '_oidc_sub', (string) $oidc_sub );
+		}
 	}
 
 	/**
