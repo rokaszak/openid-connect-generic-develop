@@ -18,6 +18,20 @@
  * @category Authentication
  */
 class OpenID_Connect_Generic_Client {
+	/**
+	 * Time budget (seconds) for DNS + TCP + TLS handshake.
+	 *
+	 * @var float
+	 */
+	const CONNECT_TIMEOUT = 5.0;
+
+	/**
+	 * Default response timeout (seconds) when the user has not
+	 * configured http_request_timeout in the plugin settings.
+	 *
+	 * @var float
+	 */
+	const DEFAULT_RESPONSE_TIMEOUT = 10.0;
 
 	/**
 	 * The OIDC/oAuth client ID.
@@ -230,18 +244,15 @@ class OpenID_Connect_Generic_Client {
 		// Allow modifications to the request.
 		$request = apply_filters( 'openid-connect-generic-alter-request', $request, 'get-authentication-token' );
 
-		// Call the server and ask for a token.
 		$start_time = microtime( true );
-		$response   = wp_remote_post( $this->endpoint_token, $request );
-		$end_time   = microtime( true );
-		$processing_time = $end_time - $start_time;
+		$response   = $this->http_request( 'POST', $this->endpoint_token, $request );
+		$processing_time = microtime( true ) - $start_time;
 
-		// Log the authentication request details with timing.
 		$this->logger->log(
 			array(
 				'type'         => 'authentication_request',
 				'endpoint'     => $this->endpoint_token,
-				'request_body' => $request['body'] ?? array(),
+				'request_body' => $this->sanitize_request_body_for_logging( $request['body'] ?? array() ),
 			),
 			'request_authentication_token_debug',
 			$processing_time
@@ -274,18 +285,15 @@ class OpenID_Connect_Generic_Client {
 		// Allow modifications to the request.
 		$request = apply_filters( 'openid-connect-generic-alter-request', $request, 'refresh-token' );
 
-		// Call the server and ask for new tokens.
 		$start_time = microtime( true );
-		$response = wp_remote_post( $this->endpoint_token, $request );
-		$end_time = microtime( true );
-		$processing_time = $end_time - $start_time;
+		$response   = $this->http_request( 'POST', $this->endpoint_token, $request );
+		$processing_time = microtime( true ) - $start_time;
 
-		// Log the request being sent with timing.
 		$this->logger->log(
 			array(
-				'type'        => 'request_new_tokens_details',
-				'endpoint'    => $this->endpoint_token,
-				'request_body' => $request['body'] ?? array(),
+				'type'         => 'request_new_tokens_details',
+				'endpoint'     => $this->endpoint_token,
+				'request_body' => $this->sanitize_request_body_for_logging( $request['body'] ?? array() ),
 			),
 			'request_new_tokens_debug',
 			$processing_time
@@ -296,6 +304,21 @@ class OpenID_Connect_Generic_Client {
 		}
 
 		return $response;
+	}
+
+	/**
+	 * Sanitize request payload before logging.
+	 *
+	 * @param array<mixed> $request_body Request body payload.
+	 *
+	 * @return array<mixed>
+	 */
+	private function sanitize_request_body_for_logging( $request_body ) {
+		if ( isset( $request_body['client_secret'] ) ) {
+			$request_body['client_secret'] = '[REDACTED]';
+		}
+
+		return $request_body;
 	}
 
 /**
@@ -397,6 +420,66 @@ public function get_token_response( $token_result ) {
 }
 
 	/**
+	 * Perform an HTTP request using the WordPress Requests library directly.
+	 *
+	 * Unlike wp_remote_post/get which expose a single "timeout" that covers
+	 * DNS + TCP + TLS + response, this method uses separate budgets:
+	 *   - connect_timeout: DNS resolution, TCP connect, and TLS handshake
+	 *   - timeout:         waiting for the server to respond after connection
+	 *
+	 * Returns a WP-compatible response array so existing parsing code works
+	 * unchanged with wp_remote_retrieve_* helpers.
+	 *
+	 * @param string       $method  HTTP method (GET, POST, etc.).
+	 * @param string       $url     Endpoint URL.
+	 * @param array<mixed> $request WordPress-style request args (body, headers, timeout, sslverify).
+	 *
+	 * @return array<mixed>|WP_Error
+	 */
+	private function http_request( $method, $url, $request ) {
+		$headers = $request['headers'] ?? array();
+		$body    = $request['body'] ?? null;
+
+		// POST form data must be URL-encoded for token endpoints.
+		if ( is_array( $body ) ) {
+			$body = http_build_query( $body, '', '&' );
+			if ( ! isset( $headers['Content-Type'] ) ) {
+				$headers['Content-Type'] = 'application/x-www-form-urlencoded';
+			}
+		}
+
+		$response_timeout = isset( $request['timeout'] ) ? floatval( $request['timeout'] ) : self::DEFAULT_RESPONSE_TIMEOUT;
+		$connect_timeout  = self::CONNECT_TIMEOUT;
+
+		$options = array(
+			'timeout'         => $response_timeout,
+			'connect_timeout' => $connect_timeout,
+			'useragent'       => 'WordPress/' . get_bloginfo( 'version' ) . '; ' . get_bloginfo( 'url' ),
+		);
+
+		if ( isset( $request['sslverify'] ) ) {
+			$options['verify'] = $request['sslverify'];
+		}
+
+		try {
+			$raw = \WpOrg\Requests\Requests::request( $url, $headers, $body, strtoupper( $method ), $options );
+		} catch ( \WpOrg\Requests\Exception $e ) {
+			return new WP_Error( 'http_request_failed', $e->getMessage() );
+		}
+
+		// Convert to WP-compatible response array.
+		return array(
+			'headers'  => $raw->headers,
+			'body'     => $raw->body,
+			'response' => array(
+				'code'    => $raw->status_code,
+				'message' => get_status_header_desc( $raw->status_code ),
+			),
+			'cookies'  => array(),
+		);
+	}
+
+	/**
 	 * Exchange an access_token for a user_claim from the userinfo endpoint
 	 *
 	 * @param string $access_token The access token supplied from authentication user claim.
@@ -427,11 +510,9 @@ public function get_token_response( $token_result ) {
 
 		$request['headers']['Host'] = $host;
 
-		// Attempt the request including the access token in the query string for backwards compatibility.
 		$start_time = microtime( true );
-		$response = wp_remote_get( $this->endpoint_userinfo, $request );
-		$end_time = microtime( true );
-		$processing_time = $end_time - $start_time;
+		$response   = $this->http_request( 'GET', $this->endpoint_userinfo, $request );
+		$processing_time = microtime( true ) - $start_time;
 
 		// Log the userinfo request details with timing.
 		$this->logger->log(
