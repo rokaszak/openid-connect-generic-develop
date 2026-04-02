@@ -29,10 +29,13 @@
  * @property string $client_id            The ID the client will be recognized as when connecting the to Identity provider server.
  * @property string $client_secret        The secret key the IDP server expects from the client.
  * @property string $scope                The list of scopes this client should access.
- * @property string $endpoint_login       The IDP authorization endpoint URL.
- * @property string $endpoint_userinfo    The IDP User information endpoint URL.
- * @property string $endpoint_token       The IDP token validation endpoint URL.
- * @property string $endpoint_end_session The IDP logout endpoint URL.
+ * @property string $discovery_url         The OIDC discovery endpoint URL.
+ * @property string $failure_redirect_url  Where to redirect users when IDP discovery fails.
+ * @property string $endpoint_login        The IDP authorization endpoint URL (resolved from discovery).
+ * @property string $endpoint_userinfo     The IDP User information endpoint URL (resolved from discovery).
+ * @property string $endpoint_token        The IDP token validation endpoint URL (resolved from discovery).
+ * @property string $endpoint_end_session  The IDP logout endpoint URL (resolved from discovery).
+ * @property bool   $discovery_failed      Runtime flag set when discovery fetch fails.
  * @property string $acr_values           The Authentication contract as defined on the IDP.
  *
  * Non-standard Settings:
@@ -108,10 +111,7 @@ class OpenID_Connect_Generic_Option_Settings {
 	private $environment_settings = array(
 		'client_id'                 => 'OIDC_CLIENT_ID',
 		'client_secret'             => 'OIDC_CLIENT_SECRET',
-		'endpoint_end_session'      => 'OIDC_ENDPOINT_LOGOUT_URL',
-		'endpoint_login'            => 'OIDC_ENDPOINT_LOGIN_URL',
-		'endpoint_token'            => 'OIDC_ENDPOINT_TOKEN_URL',
-		'endpoint_userinfo'         => 'OIDC_ENDPOINT_USERINFO_URL',
+		'discovery_url'             => 'OIDC_DISCOVERY_URL',
 		'login_type'                => 'OIDC_LOGIN_TYPE',
 		'scope'                     => 'OIDC_CLIENT_SCOPE',
 		'create_if_does_not_exist'  => 'OIDC_CREATE_IF_DOES_NOT_EXIST',
@@ -225,6 +225,9 @@ class OpenID_Connect_Generic_Option_Settings {
 				$this->__unset( $key );
 			}
 		}
+
+		// Clear discovery cache so endpoints are re-fetched on next load.
+		delete_transient( 'oidc_discovery_document' );
 
 		update_option( self::OPTION_NAME, $this->values );
 	}

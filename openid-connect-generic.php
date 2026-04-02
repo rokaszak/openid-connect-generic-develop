@@ -16,7 +16,7 @@
  * Plugin Name:       Airomi Connect
  * Plugin URI:        https://airomi.lt
  * Description:       Connect to an OpenID Connect identity provider using Authorization Code Flow.
- * Version:           3.30.5		
+ * Version:           3.30.6
  * Requires at least: 5.0
  * Requires PHP:      7.4
  * Author:            Rokas Zakarauskas
@@ -91,7 +91,7 @@ class OpenID_Connect_Generic
 	 *
 	 * @var string
 	 */
-	const VERSION = '3.30.5';
+	const VERSION = '3.30.6';
 
 	/**
 	 * Plugin settings.
@@ -145,6 +145,8 @@ class OpenID_Connect_Generic
 	 */
 	public function init()
 	{
+		// Resolve endpoints from OIDC Discovery if configured.
+		$this->resolve_discovery_endpoints();
 
 		$this->client = new OpenID_Connect_Generic_Client(
 			$this->settings->client_id,
@@ -190,6 +192,91 @@ class OpenID_Connect_Generic
 
 		if (is_admin()) {
 			OpenID_Connect_Generic_Settings_Page::register($this->settings, $this->logger);
+		}
+	}
+
+	/**
+	 * Transient key for cached discovery document.
+	 *
+	 * @var string
+	 */
+	const DISCOVERY_TRANSIENT = 'oidc_discovery_document';
+
+	/**
+	 * Fetch the OIDC discovery document and populate endpoint settings.
+	 *
+	 * Uses a WordPress transient to cache the document for 1 hour.
+	 * On failure with no cache, sets discovery_failed flag so login can redirect
+	 * to the failure URL instead of showing a broken auth link.
+	 *
+	 * @return void
+	 */
+	private function resolve_discovery_endpoints()
+	{
+		$discovery_url = $this->settings->discovery_url;
+		if (empty($discovery_url)) {
+			return;
+		}
+
+		// Try cached document first.
+		$document = get_transient(self::DISCOVERY_TRANSIENT);
+
+		if (false === $document) {
+			// Fetch fresh discovery document.
+			$response = wp_remote_get(
+				$discovery_url,
+				array(
+					'timeout' => 5,
+					'sslverify' => !$this->settings->no_sslverify,
+				)
+			);
+
+			if (is_wp_error($response) || 200 !== wp_remote_retrieve_response_code($response)) {
+				$error_msg = is_wp_error($response) ? $response->get_error_message() : 'HTTP ' . wp_remote_retrieve_response_code($response);
+				$this->logger->log(
+					array(
+						'type' => 'discovery_fetch_failed',
+						'discovery_url' => $discovery_url,
+						'error' => $error_msg,
+					),
+					'discovery',
+					null
+				);
+				// Flag so login form can redirect to failure URL.
+				$this->settings->discovery_failed = true;
+				return;
+			}
+
+			$document = json_decode(wp_remote_retrieve_body($response), true);
+			if (empty($document) || !is_array($document)) {
+				$this->logger->log(
+					array(
+						'type' => 'discovery_invalid_json',
+						'discovery_url' => $discovery_url,
+					),
+					'discovery',
+					null
+				);
+				$this->settings->discovery_failed = true;
+				return;
+			}
+
+			// Cache for 1 hour.
+			set_transient(self::DISCOVERY_TRANSIENT, $document, HOUR_IN_SECONDS);
+		}
+
+		// Map standard OIDC discovery fields to plugin settings.
+		$map = array(
+			'authorization_endpoint' => 'endpoint_login',
+			'token_endpoint' => 'endpoint_token',
+			'userinfo_endpoint' => 'endpoint_userinfo',
+			'end_session_endpoint' => 'endpoint_end_session',
+		);
+
+		foreach ($map as $discovery_key => $settings_key) {
+			if (!empty($document[$discovery_key])) {
+				$this->settings->$settings_key = $document[$discovery_key];
+			}
 		}
 	}
 
@@ -471,10 +558,8 @@ class OpenID_Connect_Generic
 				'client_id' => defined('OIDC_CLIENT_ID') ? OIDC_CLIENT_ID : '',
 				'client_secret' => defined('OIDC_CLIENT_SECRET') ? OIDC_CLIENT_SECRET : '',
 				'scope' => defined('OIDC_CLIENT_SCOPE') ? OIDC_CLIENT_SCOPE : '',
-				'endpoint_login' => defined('OIDC_ENDPOINT_LOGIN_URL') ? OIDC_ENDPOINT_LOGIN_URL : '',
-				'endpoint_userinfo' => defined('OIDC_ENDPOINT_USERINFO_URL') ? OIDC_ENDPOINT_USERINFO_URL : '',
-				'endpoint_token' => defined('OIDC_ENDPOINT_TOKEN_URL') ? OIDC_ENDPOINT_TOKEN_URL : '',
-				'endpoint_end_session' => defined('OIDC_ENDPOINT_LOGOUT_URL') ? OIDC_ENDPOINT_LOGOUT_URL : '',
+				'discovery_url' => defined('OIDC_DISCOVERY_URL') ? OIDC_DISCOVERY_URL : '',
+				'failure_redirect_url' => '',
 				'acr_values' => defined('OIDC_ACR_VALUES') ? OIDC_ACR_VALUES : '',
 
 				// Non-standard settings.

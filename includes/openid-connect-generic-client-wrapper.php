@@ -100,11 +100,12 @@ class OpenID_Connect_Generic_Client_Wrapper
 		// Clean up token on logout.
 		add_action('wp_logout', array($client_wrapper, 'cleanup_token_on_logout'), 10);
 
-		// Integrated logout - intercept before WordPress logout happens.
+		// Integrated logout - server-side POST to IDP instead of browser redirect.
 		if ($settings->endpoint_end_session) {
-			add_filter('allowed_redirect_hosts', array($client_wrapper, 'update_allowed_redirect_hosts'), 99, 1);
 			add_action('login_init', array($client_wrapper, 'intercept_logout_redirect'), 1);
-			add_action('wp', array($client_wrapper, 'handle_logout_return'), 1);
+			add_action('wp_ajax_oidc_logout', array($client_wrapper, 'ajax_logout'));
+			add_action('wp_footer', array($client_wrapper, 'print_logout_script'));
+			add_action('admin_footer', array($client_wrapper, 'print_logout_script'));
 		}
 
 		// Alter the requests according to settings.
@@ -211,6 +212,10 @@ class OpenID_Connect_Generic_Client_Wrapper
 	 */
 	public function get_authentication_url($atts = array())
 	{
+		// If discovery failed and a failure redirect is configured, return that instead.
+		if (!empty($this->settings->discovery_failed) && !empty($this->settings->failure_redirect_url)) {
+			return $this->settings->failure_redirect_url;
+		}
 
 		$atts = shortcode_atts(
 			array(
@@ -773,98 +778,204 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 	/**
-	 * Add the end_session endpoint to WordPress core's whitelist of redirect hosts.
+	 * Intercept logout to notify IDP via server-side POST before redirecting.
 	 *
-	 * @param array<string> $allowed The allowed redirect host names.
-	 *
-	 * @return array<string>|bool
-	 */
-	public function update_allowed_redirect_hosts($allowed)
-	{
-		$host = parse_url($this->settings->endpoint_end_session, PHP_URL_HOST);
-		if (!$host) {
-			return false;
-		}
-
-		$allowed[] = $host;
-		return $allowed;
-	}
-
-	/**
-	 * Intercept logout to redirect to IDP first before destroying WordPress session.
-	 *
-	 * This allows the user to confirm logout at the IDP. If confirmed, IDP redirects
-	 * back with loggedout=true and then WordPress session is destroyed. If cancelled,
-	 * IDP redirects to home page and user remains logged in.
+	 * Flow: save id_token → POST to IDP (5s timeout) → clear local session → redirect.
+	 * IDP call runs before wp_logout() because plugins hooking wp_logout may redirect/exit.
+	 * This is the server-side fallback for when JavaScript is not available.
+	 * The JS-based flow (ajax_logout) provides the spinner UX.
 	 *
 	 * @return void
 	 */
 	public function intercept_logout_redirect()
 	{
-		// Check if this is a logout request.
-		if (isset($_GET['action']) && 'logout' === $_GET['action']) {
-			// Verify nonce for security.
-			check_admin_referer('log-out');
-
-			// Build IDP logout URL with post_logout_redirect_uri.
-			$logout_return_url = home_url('?loggedout=true');
-			$end_session_url = $this->settings->endpoint_end_session;
-
-			// Get current user's ID token for logout hint.
-			$id_token = $this->get_current_id_token();
-
-			// Build logout URL with parameters.
-			$query = parse_url($end_session_url, PHP_URL_QUERY);
-			$end_session_url .= $query ? '&' : '?';
-			$end_session_url .= sprintf(
-				'id_token_hint=%s&post_logout_redirect_uri=%s',
-				$id_token,
-				urlencode($logout_return_url)
-			);
-
-			// Redirect to IDP without destroying WordPress session yet.
-			wp_redirect($end_session_url);
-			exit;
+		if (!isset($_GET['action']) || 'logout' !== $_GET['action']) {
+			return;
 		}
+
+		check_admin_referer('log-out');
+
+		// Step 1: Save the id_token before clearing anything.
+		$id_token = $this->get_current_id_token();
+		$user_id = get_current_user_id();
+		$user = wp_get_current_user();
+
+		$this->logger->log(
+			array(
+				'type' => 'logout_initiated',
+				'user_id' => $user_id,
+				'username' => $user->user_login,
+				'has_id_token' => !empty($id_token),
+			),
+			'logout',
+			null
+		);
+
+		// Step 2: Notify IDP with 5 second timeout. Runs before wp_logout() because
+		// plugins hooking wp_logout may call wp_redirect()+exit and kill execution.
+		$this->notify_idp_logout($id_token);
+
+		// Step 3: Clear local session and tokens.
+		wp_logout();
+
+		// Step 4: Navigate to logged-out page.
+		wp_safe_redirect(home_url());
+		exit;
 	}
 
 	/**
-	 * Handle the return from IDP logout.
+	 * Handle AJAX logout request from the frontend spinner flow.
 	 *
-	 * Detects the loggedout=true parameter and destroys the WordPress session.
-	 * This runs on all pages via the init hook.
+	 * Flow: save id_token → POST to IDP (5s timeout) → clear local session → return JSON.
+	 * The frontend JS shows a spinner, calls this endpoint, then navigates on completion.
 	 *
 	 * @return void
 	 */
-	public function handle_logout_return()
+	public function ajax_logout()
 	{
-		// Check if user is returning from IDP logout.
-		if (isset($_GET['loggedout']) && 'true' === $_GET['loggedout']) {
-			// User confirmed logout at IDP, now destroy WordPress session.
-			if (is_user_logged_in()) {
-				$user_id = wp_get_current_user()->ID;
-				$user = wp_get_current_user();
-				$current_token_response = $this->get_token_response_from_storage($user_id);
-				$expiry_info = $this->get_expiry_info_for_logging($user_id, $current_token_response);
+		check_ajax_referer('oidc-logout', 'nonce');
 
-				$this->logger->log(
-					array(
-						'type' => 'logout_user_confirmed_at_idp',
-						'user_id' => $user_id,
-						'username' => $user->user_login,
-						'reason' => 'User confirmed logout at IDP',
-						'token_state' => $current_token_response,
-						'expiry_info' => $expiry_info,
-					),
-					'logout_idp_confirmed',
-					null
-				);
-				wp_logout();
-			}
-			// Redirect to homepage without the loggedout parameter to clean up the URL.
-			wp_safe_redirect(home_url());
-			exit;
+		if (!is_user_logged_in()) {
+			wp_send_json_success(array('redirect_url' => home_url()));
+			return;
 		}
+
+		// Step 1: Save the id_token before clearing anything.
+		$id_token = $this->get_current_id_token();
+		$user_id = get_current_user_id();
+		$user = wp_get_current_user();
+
+		$this->logger->log(
+			array(
+				'type' => 'logout_initiated',
+				'user_id' => $user_id,
+				'username' => $user->user_login,
+				'has_id_token' => !empty($id_token),
+				'source' => 'ajax',
+			),
+			'logout',
+			null
+		);
+
+		// Step 2: Notify IDP with 5 second timeout.
+		$this->notify_idp_logout($id_token);
+
+		// Step 3: Clear local session and tokens.
+		wp_logout();
+
+		// Step 4: Return redirect URL for JS to navigate.
+		wp_send_json_success(array('redirect_url' => home_url()));
+	}
+
+	/**
+	 * Notify IDP of logout via server-side POST.
+	 *
+	 * Sends id_token_hint to the IDP end_session endpoint. Uses a 5 second timeout.
+	 * The result is logged but never blocks logout — the user is logged out regardless.
+	 *
+	 * @param string $id_token The saved id_token to send as id_token_hint.
+	 *
+	 * @return void
+	 */
+	private function notify_idp_logout($id_token)
+	{
+		$end_session_url = $this->settings->endpoint_end_session;
+
+		if (empty($end_session_url) || empty($id_token)) {
+			$this->logger->log(
+				array(
+					'type' => 'logout_idp_skipped',
+					'reason' => empty($end_session_url) ? 'no endpoint configured' : 'no id_token available',
+				),
+				'logout',
+				null
+			);
+			return;
+		}
+
+		$response = wp_remote_post(
+			$end_session_url,
+			array(
+				'timeout' => 5,
+				'body' => array(
+					'id_token_hint' => $id_token,
+				),
+				'sslverify' => !$this->settings->no_sslverify,
+			)
+		);
+
+		if (is_wp_error($response)) {
+			$this->logger->log(
+				array(
+					'type' => 'logout_idp_error',
+					'error' => $response->get_error_message(),
+				),
+				'logout',
+				null
+			);
+			return;
+		}
+
+		$response_code = wp_remote_retrieve_response_code($response);
+		$response_body = wp_remote_retrieve_body($response);
+
+		$this->logger->log(
+			array(
+				'type' => 'logout_idp_notified',
+				'response_code' => $response_code,
+				'response_body' => $response_body,
+			),
+			'logout',
+			null
+		);
+	}
+
+	/**
+	 * Print inline logout script in the footer.
+	 *
+	 * Intercepts logout link clicks, shows a spinner overlay, performs AJAX logout
+	 * (IDP notification + session cleanup), then navigates to home.
+	 *
+	 * @return void
+	 */
+	public function print_logout_script()
+	{
+		if (!is_user_logged_in() || empty($this->settings->endpoint_end_session)) {
+			return;
+		}
+
+		$ajax_url = esc_url(admin_url('admin-ajax.php'));
+		$nonce = wp_create_nonce('oidc-logout');
+		$home_url = esc_url(home_url());
+		?>
+		<script>
+		(function(){
+			var busy=false;
+			function go(){
+				if(busy)return;busy=true;
+				var o=document.createElement('div');
+				o.id='oidc-lo';
+				o.setAttribute('role','alert');
+				o.innerHTML='<div style="text-align:center"><div style="width:40px;height:40px;margin:0 auto 16px;border:4px solid #e0e0e0;border-top-color:#0073aa;border-radius:50%;animation:oidc-s .8s linear infinite"></div><p style="font:16px -apple-system,BlinkMacSystemFont,sans-serif;color:#333;margin:0">Logging out&hellip;</p></div>';
+				o.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,.92);z-index:999999;display:flex;align-items:center;justify-content:center';
+				var s=document.createElement('style');s.textContent='@keyframes oidc-s{to{transform:rotate(360deg)}}';
+				document.head.appendChild(s);document.body.appendChild(o);
+				var x=new XMLHttpRequest();
+				x.open('POST','<?php echo $ajax_url; ?>',true);
+				x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
+				x.timeout=15000;
+				function nav(){window.location.href='<?php echo $home_url; ?>';}
+				x.onload=x.onerror=x.ontimeout=nav;
+				x.send('action=oidc_logout&nonce=<?php echo $nonce; ?>');
+			}
+			document.addEventListener('click',function(e){
+				var t=e.target;
+				while(t&&t!==document&&t.tagName!=='A')t=t.parentElement;
+				if(t&&t.href&&t.href.indexOf('action=logout')!==-1){e.preventDefault();e.stopPropagation();go();}
+			},true);
+		})();
+		</script>
+		<?php
 	}
 
 	/**
