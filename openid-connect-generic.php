@@ -16,7 +16,7 @@
  * Plugin Name:       Airomi Connect
  * Plugin URI:        https://airomi.lt
  * Description:       Connect to an OpenID Connect identity provider using Authorization Code Flow.
- * Version:           3.30.6
+ * Version:           3.30.7
  * Requires at least: 5.0
  * Requires PHP:      7.4
  * Author:            Rokas Zakarauskas
@@ -91,7 +91,7 @@ class OpenID_Connect_Generic
 	 *
 	 * @var string
 	 */
-	const VERSION = '3.30.6';
+	const VERSION = '3.30.7';
 
 	/**
 	 * Plugin settings.
@@ -569,6 +569,8 @@ class OpenID_Connect_Generic
 				'nickname_key' => 'preferred_username',
 				'email_format' => '{email}',
 				'displayname_format' => '',
+				'enable_nickname_format' => 0,
+				'nickname_format' => '{given_name}',
 				'identify_with_username' => false,
 				'state_time_limit' => 180,
 

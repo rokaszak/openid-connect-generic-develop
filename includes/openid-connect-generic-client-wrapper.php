@@ -464,6 +464,18 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$token_data = $last_token_response;
 			$token_data['last_userinfo_check'] = time();
 			$this->token_storage->save_token($token, $user_id, $token_data);
+
+			// Sync roles from fresh userinfo claims (e.g. catches revoked admin).
+			if (!is_wp_error($userinfo_result) && isset($userinfo_result['body'])) {
+				$fresh_claim = json_decode($userinfo_result['body'], true);
+				if (is_array($fresh_claim)) {
+					$user = get_user_by('id', $user_id);
+					if ($user) {
+						$this->assign_user_role_from_claim($user, $fresh_claim);
+						update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $fresh_claim);
+					}
+				}
+			}
 		}
 	}
 
@@ -956,8 +968,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 				var o=document.createElement('div');
 				o.id='oidc-lo';
 				o.setAttribute('role','alert');
-				o.innerHTML='<div style="text-align:center"><div style="width:40px;height:40px;margin:0 auto 16px;border:4px solid #e0e0e0;border-top-color:#0073aa;border-radius:50%;animation:oidc-s .8s linear infinite"></div><p style="font:16px -apple-system,BlinkMacSystemFont,sans-serif;color:#333;margin:0">Logging out&hellip;</p></div>';
-				o.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,.92);z-index:999999;display:flex;align-items:center;justify-content:center';
+				o.innerHTML='<div style="width:24px;height:24px;border:2px solid transparent;border-top-color:#000;border-radius:50%;animation:oidc-s .8s linear infinite"></div>';
+				o.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;background:#fff;z-index:999999;display:flex;align-items:center;justify-content:center';
 				var s=document.createElement('style');s.textContent='@keyframes oidc-s{to{transform:rotate(360deg)}}';
 				document.head.appendChild(s);document.body.appendChild(o);
 				var x=new XMLHttpRequest();
@@ -1473,6 +1485,38 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 	/**
+	 * Generate a unique 3-digit suffix for a nickname base.
+	 *
+	 * @param string $base_name The base nickname to check uniqueness against.
+	 *
+	 * @return string A 3-digit suffix that produces a unique nickname.
+	 */
+	private function generate_unique_nickname_suffix($base_name)
+	{
+		$max_attempts = 50;
+		for ($i = 0; $i < $max_attempts; $i++) {
+			$suffix = str_pad(wp_rand(0, 999), 3, '0', STR_PAD_LEFT);
+			$candidate = $base_name . $suffix;
+			// Check that no existing user has this nickname.
+			$user_query = new WP_User_Query(array(
+				'meta_query' => array(
+					array(
+						'key' => 'nickname',
+						'value' => $candidate,
+					),
+				),
+				'blog_id' => 0,
+				'number' => 1,
+			));
+			if ($user_query->get_total() === 0) {
+				return $suffix;
+			}
+		}
+		// Fallback: use 5 digits if 3-digit space is exhausted.
+		return str_pad(wp_rand(0, 99999), 5, '0', STR_PAD_LEFT);
+	}
+
+	/**
 	 * Checks if $claimname is in the body or _claim_names of the userinfo.
 	 * If yes, returns the claim value. Otherwise, returns false.
 	 *
@@ -1697,22 +1741,32 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$username = $_username;
 		}
 
-		$_nickname = $this->get_nickname_from_claim($user_claim);
-		if (is_wp_error($_nickname)) {
-			return $_nickname;
-		}
-		// Use the username as the nickname if the userinfo request nickname is empty.
-		if (empty($_nickname)) {
-			$nickname = $username;
-		}
-
-		$_displayname = $this->get_displayname_from_claim($user_claim, true);
-		if (is_wp_error($_displayname)) {
-			return $_displayname;
-		}
-		// Use the nickname as the displayname if the userinfo request displayname is empty.
-		if (empty($_displayname)) {
+		// When nickname formatting is enabled, use the format + 3 random digits for both nickname and display name.
+		if (!empty($this->settings->enable_nickname_format) && !empty($this->settings->nickname_format)) {
+			$base_name = $this->format_string_with_claim($this->settings->nickname_format, $user_claim, true);
+			if (is_wp_error($base_name)) {
+				return $base_name;
+			}
+			$nickname = $base_name . $this->generate_unique_nickname_suffix($base_name);
 			$displayname = $nickname;
+		} else {
+			$_nickname = $this->get_nickname_from_claim($user_claim);
+			if (is_wp_error($_nickname)) {
+				return $_nickname;
+			}
+			// Use the username as the nickname if the userinfo request nickname is empty.
+			if (empty($_nickname)) {
+				$nickname = $username;
+			}
+
+			$_displayname = $this->get_displayname_from_claim($user_claim, true);
+			if (is_wp_error($_displayname)) {
+				return $_displayname;
+			}
+			// Use the nickname as the displayname if the userinfo request displayname is empty.
+			if (empty($_displayname)) {
+				$displayname = $nickname;
+			}
 		}
 
 		// Before trying to create the user, first check if a matching user exists.
@@ -1724,11 +1778,25 @@ class OpenID_Connect_Generic_Client_Wrapper
 				$uid = email_exists($email);
 			}
 			if (!empty($uid)) {
-				$user = $this->update_existing_user($uid, $subject_identity);
-				do_action('openid-connect-generic-update-user-using-current-claim', $user, $user_claim);
-				$end_time = microtime(true);
-				$this->logger->log("Existing user updated: {$user->user_login} ($uid)", __METHOD__, $end_time - $start_time);
-				return $user;
+				// Check if the existing user is already linked to a different IDP identity.
+				$existing_sub = get_user_meta($uid, 'openid-connect-generic-subject-identity', true);
+				if (!empty($existing_sub) && $existing_sub !== strval($subject_identity)) {
+					// This WP account belongs to a different IDP user. Scramble its email
+					// so the new IDP user can get a fresh account with the correct email.
+					$orphaned_email = 'orphaned_' . $existing_sub . '_' . get_userdata($uid)->user_email;
+					wp_update_user(array('ID' => $uid, 'user_email' => $orphaned_email));
+					$this->logger->log(
+						"Orphaned user {$uid}: sub '{$existing_sub}' no longer matches incoming sub '{$subject_identity}'. Email changed to '{$orphaned_email}'.",
+						__METHOD__
+					);
+					// Fall through to create a new account for the new IDP identity.
+				} else {
+					$user = $this->update_existing_user($uid, $subject_identity);
+					do_action('openid-connect-generic-update-user-using-current-claim', $user, $user_claim);
+					$end_time = microtime(true);
+					$this->logger->log("Existing user updated: {$user->user_login} ($uid)", __METHOD__, $end_time - $start_time);
+					return $user;
+				}
 			}
 		}
 

@@ -46,6 +46,8 @@
  * @property string $nickname_key           The key in the user claim array to find the user's nickname.
  * @property string $email_format           The key(s) in the user claim array to formulate the user's email address.
  * @property string $displayname_format     The key(s) in the user claim array to formulate the user's display name.
+ * @property bool   $enable_nickname_format The flag to enable nickname formatting with random digits for both nickname and display name.
+ * @property string $nickname_format        The format string for generating nickname/display name when nickname formatting is enabled.
  * @property bool   $identify_with_username The flag which indicates how the user's identity will be determined.
  * @property int    $state_time_limit       The valid time limit of the state, in seconds. Defaults to 180 seconds.
  *

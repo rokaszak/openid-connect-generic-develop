@@ -334,6 +334,19 @@ class OpenID_Connect_Generic_Settings_Page {
 				'type'        => 'text',
 				'section'     => 'client_settings',
 			),
+			'enable_nickname_format'   => array(
+				'title'       => __( 'Enable Nickname Formatting', 'daggerhart-openid-connect-generic' ),
+				'description' => __( 'If checked, both nickname and display name will use the Nickname Format below with 3 random digits appended (e.g. Rokas948). This overrides Nickname Key and Display Name Formatting.', 'daggerhart-openid-connect-generic' ),
+				'type'        => 'checkbox',
+				'section'     => 'client_settings',
+			),
+			'nickname_format'     => array(
+				'title'       => __( 'Nickname Format', 'daggerhart-openid-connect-generic' ),
+				'description' => __( 'Format string for generating nickname and display name when Nickname Formatting is enabled. Uses {claim} syntax.', 'daggerhart-openid-connect-generic' ),
+				'example'     => '{given_name}',
+				'type'        => 'text',
+				'section'     => 'client_settings',
+			),
 			'identify_with_username'     => array(
 				'title'       => __( 'Identify with User Name', 'daggerhart-openid-connect-generic' ),
 				'description' => __( 'If checked, the user\'s identity will be determined by the user name instead of the email address.', 'daggerhart-openid-connect-generic' ),
