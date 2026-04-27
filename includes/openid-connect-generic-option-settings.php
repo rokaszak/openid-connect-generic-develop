@@ -70,6 +70,7 @@
  * @property int    $login_button_image_id             Attachment ID for optional login button logo.
  * @property string $sync_userinfo_button_text        Custom text for the sync userinfo button.
  * @property string $sync_userinfo_success_message    Custom success message displayed after syncing user info.
+ * @property bool   $enable_magic_link                The flag to enable the magic-link REST endpoint and consumer for trusted-backend SSO handoff.
  *
  * Role Mapping Settings:
  *

@@ -463,6 +463,12 @@ class OpenID_Connect_Generic_Settings_Page {
 			'type'        => 'checkbox',
 			'section'     => 'authorization_settings',
 		),
+		'enable_magic_link'   => array(
+			'title'       => __( 'Enable Magic Link', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Expose a REST endpoint that issues short-lived, single-use login URLs from a verified IDP token response. Intended for trusted backends (e.g. mobile apps) that want to hand off an existing IDP session to WordPress without a second login. Requires admin authentication (Application Password) on the REST endpoint.', 'daggerhart-openid-connect-generic' ),
+			'type'        => 'checkbox',
+			'section'     => 'authorization_settings',
+		),
 		'sync_userinfo_button_text'   => array(
 			'title'       => __( 'Sync User Info Button Text', 'daggerhart-openid-connect-generic' ),
 			'description' => __( 'Customize the text displayed on the sync userinfo button in WooCommerce edit account form.', 'daggerhart-openid-connect-generic' ),

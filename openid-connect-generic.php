@@ -16,7 +16,7 @@
  * Plugin Name:       Airomi Connect
  * Plugin URI:        https://airomi.lt
  * Description:       Connect to an OpenID Connect identity provider using Authorization Code Flow.
- * Version:           3.30.7
+ * Version:           3.40.1
  * Requires at least: 5.0
  * Requires PHP:      7.4
  * Author:            Rokas Zakarauskas
@@ -91,7 +91,7 @@ class OpenID_Connect_Generic
 	 *
 	 * @var string
 	 */
-	const VERSION = '3.30.7';
+	const VERSION = '3.40.1';
 
 	/**
 	 * Plugin settings.
@@ -183,6 +183,10 @@ class OpenID_Connect_Generic
 
 		// Register Bricks Builder integration if Bricks is active.
 		OpenID_Connect_Generic_Bricks_Integration::register();
+
+		// Register magic link bridge if enabled.
+		OpenID_Connect_Generic_Magic_Link_Rest::register($this->settings, $this->logger, $this->client_wrapper);
+		OpenID_Connect_Generic_Magic_Link_Consumer::register($this->settings, $this->logger, $this->client_wrapper);
 
 		// Add a shortcode to get the auth URL.
 		add_shortcode('openid_connect_generic_auth_url', array($this->client_wrapper, 'get_authentication_url'));
@@ -588,6 +592,7 @@ class OpenID_Connect_Generic
 				'enable_woocommerce_oidc' => 0,
 				'disable_woocommerce_password_auth' => 0,
 				'disable_woocommerce_edit_account_fields' => 0,
+				'enable_magic_link' => 0,
 				'login_button_text' => '',
 				'login_button_image_id' => 0,
 				'sync_userinfo_button_text' => '',
