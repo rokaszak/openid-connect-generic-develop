@@ -163,6 +163,13 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->options_page_name
 	);
 
+	add_settings_section(
+		'claim_meta_mapping_settings',
+		__( 'Claim Meta Mapping Settings', 'daggerhart-openid-connect-generic' ),
+		array( $this, 'claim_meta_mapping_settings_description' ),
+		$this->options_page_name
+	);
+
 		// Preprocess fields and add them to the page.
 		foreach ( $this->settings_fields as $key => $field ) {
 			// Make sure each key exists in the settings array.
@@ -182,6 +189,10 @@ class OpenID_Connect_Generic_Settings_Page {
 
 			case 'role_mappings_repeater':
 				$callback = 'do_role_mappings_repeater';
+				break;
+
+			case 'claim_meta_mappings_repeater':
+				$callback = 'do_claim_meta_mappings_repeater';
 				break;
 
 			case 'image_picker':
@@ -426,6 +437,18 @@ class OpenID_Connect_Generic_Settings_Page {
 			'type'        => 'role_mappings_repeater',
 			'section'     => 'role_mapping_settings',
 		),
+		'enable_claim_meta_mapping' => array(
+			'title'       => __( 'Enable Claim Meta Mapping', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Copy values from OIDC claims into WordPress user meta on every login and userinfo re-check.', 'daggerhart-openid-connect-generic' ),
+			'type'        => 'checkbox',
+			'section'     => 'claim_meta_mapping_settings',
+		),
+		'claim_meta_mappings'   => array(
+			'title'       => __( 'Claim Meta Mappings', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Map an OIDC claim key to a WordPress user meta key. Scalar claims are stored as-is; array claims are stored as a serialized array under one meta key. If the claim is absent from the userinfo response, the meta key is deleted.', 'daggerhart-openid-connect-generic' ),
+			'type'        => 'claim_meta_mappings_repeater',
+			'section'     => 'claim_meta_mapping_settings',
+		),
 		'userinfo_check_interval'   => array(
 			'title'       => __( 'Token Validation Interval', 'daggerhart-openid-connect-generic' ),
 			'description' => __( 'How often (in seconds) to validate access token via userinfo endpoint. Default: 600 seconds (10 minutes). Set to 0 to disable periodic validation.', 'daggerhart-openid-connect-generic' ),
@@ -523,6 +546,18 @@ class OpenID_Connect_Generic_Settings_Page {
 							$options[ $key ][] = array(
 								'claim_value' => sanitize_text_field( $mapping['claim_value'] ),
 								'wp_role'     => sanitize_text_field( $mapping['wp_role'] ),
+							);
+						}
+					}
+				}
+			} elseif ( 'claim_meta_mappings' === $key ) {
+				$options[ $key ] = array();
+				if ( isset( $input[ $key ] ) && is_array( $input[ $key ] ) ) {
+					foreach ( $input[ $key ] as $mapping ) {
+						if ( ! empty( $mapping['claim_key'] ) && ! empty( $mapping['meta_key'] ) ) {
+							$options[ $key ][] = array(
+								'claim_key' => sanitize_text_field( trim( $mapping['claim_key'] ) ),
+								'meta_key'  => sanitize_key( $mapping['meta_key'] ),
 							);
 						}
 					}
@@ -815,6 +850,67 @@ class OpenID_Connect_Generic_Settings_Page {
 	}
 
 	/**
+	 * Output the claim-to-meta mappings repeater field.
+	 *
+	 * @param array $field The settings field definition array.
+	 *
+	 * @return void
+	 */
+	public function do_claim_meta_mappings_repeater( $field ) {
+		$mappings   = isset( $this->settings->{ $field['key'] } ) ? $this->settings->{ $field['key'] } : array();
+		$field_name = $field['name'];
+		?>
+		<div class="oidc-role-mappings-repeater">
+			<div class="oidc-role-mappings-rows" data-repeater="claim_meta_mappings">
+				<?php
+				if ( ! empty( $mappings ) && is_array( $mappings ) ) :
+					foreach ( $mappings as $index => $mapping ) :
+						$claim_key = isset( $mapping['claim_key'] ) ? $mapping['claim_key'] : '';
+						$meta_key  = isset( $mapping['meta_key'] ) ? $mapping['meta_key'] : '';
+						?>
+						<div class="oidc-role-mapping-row">
+							<input type="text"
+								   class="oidc-claim-value"
+								   name="<?php echo esc_attr( $field_name ); ?>[<?php echo esc_attr( $index ); ?>][claim_key]"
+								   value="<?php echo esc_attr( $claim_key ); ?>"
+								   placeholder="<?php esc_attr_e( 'Claim key (e.g., eshop.waitlist)', 'daggerhart-openid-connect-generic' ); ?>">
+							<span class="oidc-arrow">→</span>
+							<input type="text"
+								   class="oidc-claim-value"
+								   name="<?php echo esc_attr( $field_name ); ?>[<?php echo esc_attr( $index ); ?>][meta_key]"
+								   value="<?php echo esc_attr( $meta_key ); ?>"
+								   placeholder="<?php esc_attr_e( 'WP user meta key (e.g., waitlist_ids)', 'daggerhart-openid-connect-generic' ); ?>">
+							<button type="button" class="button oidc-remove-row"><?php esc_html_e( 'Remove', 'daggerhart-openid-connect-generic' ); ?></button>
+						</div>
+						<?php
+					endforeach;
+				endif;
+				?>
+			</div>
+			<button type="button" class="button oidc-add-row" data-template="oidc-claim-meta-mapping-row-template"><?php esc_html_e( 'Add Mapping', 'daggerhart-openid-connect-generic' ); ?></button>
+
+			<script type="text/template" id="oidc-claim-meta-mapping-row-template">
+				<div class="oidc-role-mapping-row">
+					<input type="text"
+						   class="oidc-claim-value"
+						   name="<?php echo esc_attr( $field_name ); ?>[{{INDEX}}][claim_key]"
+						   value=""
+						   placeholder="<?php esc_attr_e( 'Claim key (e.g., eshop.waitlist)', 'daggerhart-openid-connect-generic' ); ?>">
+					<span class="oidc-arrow">→</span>
+					<input type="text"
+						   class="oidc-claim-value"
+						   name="<?php echo esc_attr( $field_name ); ?>[{{INDEX}}][meta_key]"
+						   value=""
+						   placeholder="<?php esc_attr_e( 'WP user meta key (e.g., waitlist_ids)', 'daggerhart-openid-connect-generic' ); ?>">
+					<button type="button" class="button oidc-remove-row"><?php esc_html_e( 'Remove', 'daggerhart-openid-connect-generic' ); ?></button>
+				</div>
+			</script>
+		</div>
+		<?php
+		$this->do_field_description( $field );
+	}
+
+	/**
 	 * Output the 'Client Settings' plugin setting section description.
 	 *
 	 * @return void
@@ -848,6 +944,15 @@ class OpenID_Connect_Generic_Settings_Page {
 	 */
 	public function log_settings_description() {
 		esc_html_e( 'Log information about login attempts through Airomi Connect.', 'daggerhart-openid-connect-generic' );
+	}
+
+	/**
+	 * Output the 'Claim Meta Mapping Settings' plugin setting section description.
+	 *
+	 * @return void
+	 */
+	public function claim_meta_mapping_settings_description() {
+		esc_html_e( 'Copy values from OIDC claims directly into WordPress user meta keys.', 'daggerhart-openid-connect-generic' );
 	}
 
 	/**

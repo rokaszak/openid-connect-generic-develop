@@ -472,6 +472,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 					$user = get_user_by('id', $user_id);
 					if ($user) {
 						$this->assign_user_role_from_claim($user, $fresh_claim);
+						$this->sync_user_meta_from_claims($user, $fresh_claim);
 						update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $fresh_claim);
 					}
 				}
@@ -1360,6 +1361,9 @@ class OpenID_Connect_Generic_Client_Wrapper
 		// Assign role based on OIDC claim if role mapping is enabled.
 		$this->assign_user_role_from_claim($user, $user_claim);
 
+		// Copy configured claim values into user meta.
+		$this->sync_user_meta_from_claims($user, $user_claim);
+
 		// Allow plugins / themes to take action using current claims on existing user (e.g. update role).
 		do_action('openid-connect-generic-update-user-using-current-claim', $user, $user_claim);
 
@@ -1902,6 +1906,9 @@ class OpenID_Connect_Generic_Client_Wrapper
 		// Assign role based on OIDC claim if role mapping is enabled.
 		$this->assign_user_role_from_claim($user, $user_claim);
 
+		// Copy configured claim values into user meta.
+		$this->sync_user_meta_from_claims($user, $user_claim);
+
 		// Log the results.
 		$end_time = microtime(true);
 		$this->logger->log("New user created: {$user->user_login} ($uid)", __METHOD__, $end_time - $start_time);
@@ -2001,6 +2008,74 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$user->set_role($matched_role);
 		} else {
 			$user->set_role($default_role);
+		}
+	}
+
+	/**
+	 * Copy configured OIDC claim values into WordPress user meta.
+	 *
+	 * For each configured mapping, the claim value (scalar or array) is written
+	 * to the named user meta key via update_user_meta — WP serializes arrays
+	 * automatically. If the claim is absent from the userinfo response, the meta
+	 * key is deleted to keep WP state in sync with the IDP.
+	 *
+	 * @param WP_User $user       The WordPress user object.
+	 * @param array   $user_claim The authenticated user claim from OIDC.
+	 *
+	 * @return void
+	 */
+	private function sync_user_meta_from_claims($user, $user_claim)
+	{
+		if (empty($this->settings->enable_claim_meta_mapping)) {
+			return;
+		}
+
+		$mappings = $this->settings->claim_meta_mappings;
+		if (empty($mappings) || !is_array($mappings)) {
+			return;
+		}
+
+		foreach ($mappings as $mapping) {
+			if (empty($mapping['claim_key']) || empty($mapping['meta_key'])) {
+				continue;
+			}
+
+			$claim_key = $mapping['claim_key'];
+			$meta_key  = $mapping['meta_key'];
+
+			if (array_key_exists($claim_key, $user_claim)) {
+				$value = $user_claim[$claim_key];
+				update_user_meta($user->ID, $meta_key, $value);
+
+				$this->logger->log(
+					array(
+						'type'      => 'claim_meta_sync_set',
+						'user_id'   => $user->ID,
+						'username'  => $user->user_login,
+						'claim_key' => $claim_key,
+						'meta_key'  => $meta_key,
+						'is_array'  => is_array($value),
+						'count'     => is_array($value) ? count($value) : 1,
+					),
+					'claim_meta_sync_set',
+					$user->ID
+				);
+			} else {
+				delete_user_meta($user->ID, $meta_key);
+
+				$this->logger->log(
+					array(
+						'type'      => 'claim_meta_sync_cleared',
+						'user_id'   => $user->ID,
+						'username'  => $user->user_login,
+						'claim_key' => $claim_key,
+						'meta_key'  => $meta_key,
+						'reason'    => 'Claim absent from userinfo response',
+					),
+					'claim_meta_sync_cleared',
+					$user->ID
+				);
+			}
 		}
 	}
 }

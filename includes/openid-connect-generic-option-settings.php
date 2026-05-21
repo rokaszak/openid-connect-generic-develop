@@ -79,6 +79,11 @@
  * @property string $role_claim_key      The claim key path to read role values from (e.g., "info.permissions").
  * @property array  $role_mappings       Array of claim value to WordPress role mappings.
  *
+ * Claim Meta Mapping Settings:
+ *
+ * @property bool  $enable_claim_meta_mapping The flag to enable/disable copying OIDC claim values into WordPress user meta.
+ * @property array $claim_meta_mappings       Array of claim key to WordPress user meta key mappings.
+ *
  * OIDC Session Lifecycle Settings:
  *
  * @property int  $userinfo_check_interval        Interval in seconds for userinfo endpoint validation (default: 600).

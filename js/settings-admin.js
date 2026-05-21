@@ -10,17 +10,29 @@
 	'use strict';
 
 	$(document).ready(function() {
-		var rowIndex = $('.oidc-role-mapping-row').length;
-
-		// Add new mapping row
+		// Add new mapping row. Scoped to the repeater wrapper that contains the
+		// clicked button so multiple repeaters on the same page don't collide.
 		$(document).on('click', '.oidc-add-row', function(e) {
 			e.preventDefault();
-			
-			var template = $('#oidc-role-mapping-row-template').html();
-			var newRow = template.replace(/\{\{INDEX\}\}/g, rowIndex);
-			
-			$('.oidc-role-mappings-rows').append(newRow);
-			rowIndex++;
+
+			var $button    = $(this);
+			var $repeater  = $button.closest('.oidc-role-mappings-repeater');
+			var $rows      = $repeater.find('.oidc-role-mappings-rows').first();
+			var templateId = $button.data('template') || 'oidc-role-mapping-row-template';
+			var template   = $('#' + templateId).html();
+
+			if (!template) {
+				return;
+			}
+
+			var nextIndex = $repeater.data('next-index');
+			if (typeof nextIndex !== 'number') {
+				nextIndex = $rows.children('.oidc-role-mapping-row').length;
+			}
+			$repeater.data('next-index', nextIndex + 1);
+
+			var newRow = template.replace(/\{\{INDEX\}\}/g, nextIndex);
+			$rows.append(newRow);
 		});
 
 		// Remove mapping row
