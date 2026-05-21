@@ -1,66 +1,23 @@
 <?php
-/**
- * Plugin logging class.
- *
- * @package   OpenID_Connect_Generic
- * @category  Logging
- * @author    Rokas Zakarauskas <rokas@airomi.lt>
- * @copyright Rokas Zakarauskas
- * @license   http://www.gnu.org/licenses/gpl-2.0.txt GPL-2.0+
- */
 
-/**
- * OpenID_Connect_Generic_Option_Logger class.
- *
- * Simple class for logging messages to the options table.
- *
- * @package  OpenID_Connect_Generic
- * @category Logging
- */
 class OpenID_Connect_Generic_Option_Logger {
 
-	/**
-	 * Thw WordPress option name/key.
-	 *
-	 * @var string
-	 */
+
 	const OPTION_NAME = 'openid-connect-generic-logs';
 
-	/**
-	 * The default message type.
-	 *
-	 * @var string
-	 */
+
 	private $default_message_type = 'none';
 
-	/**
-	 * The number of items to keep in the log.
-	 *
-	 * @var int
-	 */
+
 	private $log_limit = 1000;
 
-	/**
-	 * Whether or not logging is enabled.
-	 *
-	 * @var bool
-	 */
+
 	private $logging_enabled = true;
 
-	/**
-	 * Internal cache of logs.
-	 *
-	 * @var array
-	 */
+
 	private $logs;
 
-	/**
-	 * Setup the logger according to the needs of the instance.
-	 *
-	 * @param string|null    $default_message_type The log message type.
-	 * @param bool|TRUE|null $logging_enabled      Whether logging is enabled.
-	 * @param int|null       $log_limit            The log entry limit.
-	 */
+
 	public function __construct( $default_message_type = null, $logging_enabled = null, $log_limit = null ) {
 		if ( ! is_null( $default_message_type ) ) {
 			$this->default_message_type = $default_message_type;
@@ -73,18 +30,7 @@ class OpenID_Connect_Generic_Option_Logger {
 		}
 	}
 
-	/**
-	 * Save an array of data to the logs.
-	 *
-	 * @param string|array<string, string>|WP_Error $data            The log message data.
-	 * @param string|null                           $type            The log message type.
-	 * @param float|null                            $processing_time Optional event processing time.
-	 * @param int|null                              $time            The log message timestamp (default: time()).
-	 * @param int|null                              $user_ID         The current WordPress user ID (default: get_current_user_id()).
-	 * @param string|null                           $request_uri     The related HTTP request URI (default: $_SERVER['REQUEST_URI']|'Unknown').
-	 *
-	 * @return bool
-	 */
+
 	public function log( $data, $type = null, $processing_time = null, $time = null, $user_ID = null, $request_uri = null ) {
 		if ( boolval( $this->logging_enabled ) ) {
 			$logs = $this->get_logs();
@@ -96,44 +42,25 @@ class OpenID_Connect_Generic_Option_Logger {
 		return false;
 	}
 
-	/**
-	 * Retrieve all log messages.
-	 *
-	 * @return array
-	 */
+
 	public function get_logs() {
 		if ( empty( $this->logs ) ) {
 			$this->logs = get_option( self::OPTION_NAME, array() );
 		}
 
-		// Call the upkeep_logs function to give the appearance that logs have been reduced to the $this->log_limit.
-		// The logs are actually limited during a logging action but the logger isn't available during a simple settings update.
+
+
 		return $this->upkeep_logs( $this->logs );
 	}
 
-	/**
-	 * Get the name of the option where this log is stored.
-	 *
-	 * @return string
-	 */
+
 	public function get_option_name() {
 		return self::OPTION_NAME;
 	}
 
-	/**
-	 * Create a message array containing the data and other information.
-	 *
-	 * @param string|array<string, string>|WP_Error $data            The log message data.
-	 * @param string|null                           $type            The log message type.
-	 * @param float|null                            $processing_time Optional event processing time.
-	 * @param int|null                              $time            The log message timestamp (default: time()).
-	 * @param int|null                              $user_ID         The current WordPress user ID (default: get_current_user_id()).
-	 * @param string|null                           $request_uri     The related HTTP request URI (default: $_SERVER['REQUEST_URI']|'Unknown').
-	 *
-	 * @return array
-	 */
+
 	private function make_message( $data, $type, $processing_time, $time, $user_ID, $request_uri ) {
-		// Determine the type of message.
+
 		if ( empty( $type ) ) {
 			$type = $this->default_message_type;
 
@@ -153,7 +80,7 @@ class OpenID_Connect_Generic_Option_Logger {
 			$request_uri = preg_replace( '/code=([^&]+)/i', 'code=', $request_uri );
 		}
 
-		// Construct the message.
+
 		$message = array(
 			'type'            => $type,
 			'time'            => ! empty( $time ) ? $time : time(),
@@ -166,53 +93,31 @@ class OpenID_Connect_Generic_Option_Logger {
 		return $message;
 	}
 
-	/**
-	 * Keep the log count under the limit.
-	 *
-	 * @param array $logs The plugin logs.
-	 *
-	 * @return array
-	 */
+
 	private function upkeep_logs( $logs ) {
 		$items_to_remove = count( $logs ) - $this->log_limit;
 
 		if ( $items_to_remove > 0 ) {
-			// Only keep the last $log_limit messages from the end.
+
 			$logs = array_slice( $logs, $items_to_remove );
 		}
 
 		return $logs;
 	}
 
-	/**
-	 * Save the log messages.
-	 *
-	 * @param array $logs The array of log messages.
-	 *
-	 * @return bool
-	 */
+
 	private function save_logs( $logs ) {
-		// Save the logs.
+
 		$this->logs = $logs;
 		return update_option( self::OPTION_NAME, $logs, false );
 	}
 
-	/**
-	 * Clear all log messages.
-	 *
-	 * @return void
-	 */
+
 	public function clear_logs() {
 		$this->save_logs( array() );
 	}
 
-	/**
-	 * Get a simple html table of all the logs.
-	 *
-	 * @param array $logs The array of log messages.
-	 *
-	 * @return string
-	 */
+
 	public function get_logs_table( $logs = array() ) {
 		if ( empty( $logs ) ) {
 			$logs = $this->get_logs();
@@ -259,15 +164,15 @@ class OpenID_Connect_Generic_Option_Logger {
 					</td>
 				<td class="col-data">
 					<pre style="background: #f5f5f5; padding: 8px; border-radius: 3px; font-family: monospace; font-size: 12px; margin: 0; max-height: 500px; overflow-y: auto;">
-						<?php 
+						<?php
 							if ( is_array( $log['data'] ) ) {
-								// Format array data as readable key:value pairs
+
 								foreach ( $log['data'] as $key => $value ) {
 									echo esc_html( $key ) . ': ';
 									if ( is_array( $value ) ) {
 										echo esc_html( wp_json_encode( $value ) );
 									} elseif ( is_object( $value ) ) {
-										// Handle objects (like CaseInsensitiveDictionary) by converting to array first
+
 										if ( method_exists( $value, 'to_array' ) ) {
 											echo esc_html( wp_json_encode( $value->to_array() ) );
 										} else {
@@ -279,7 +184,7 @@ class OpenID_Connect_Generic_Option_Logger {
 									echo "\n";
 								}
 							} else {
-								// For non-array data, just show it
+
 								echo esc_html( (string) $log['data'] );
 							}
 						?>

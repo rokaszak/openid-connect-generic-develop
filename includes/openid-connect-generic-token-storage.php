@@ -1,59 +1,24 @@
 <?php
-/**
- * Token storage class for OIDC session tokens.
- *
- * Stores OIDC tokens in a dedicated database table to eliminate WordPress
- * session token race conditions by using MySQL row-level locking.
- *
- * @package   OpenID_Connect_Generic
- * @category  Authentication
- * @author    Rokas Zakarauskas <rokas@airomi.lt>
- * @copyright Rokas Zakarauskas
- * @license   http://www.gnu.org/licenses/gpl-2.0.txt GPL-2.0+
- */
 
-/**
- * OpenID_Connect_Generic_Token_Storage class.
- *
- * Handles storage and retrieval of OIDC tokens in a dedicated database table.
- *
- * @package  OpenID_Connect_Generic
- * @category Authentication
- */
+
+
 class OpenID_Connect_Generic_Token_Storage {
 
-	/**
-	 * The logger object instance.
-	 *
-	 * @var OpenID_Connect_Generic_Option_Logger
-	 */
+	
 	private $logger;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param OpenID_Connect_Generic_Option_Logger $logger The logger object instance.
-	 */
+	
 	public function __construct( OpenID_Connect_Generic_Option_Logger $logger ) {
 		$this->logger = $logger;
 	}
 
-	/**
-	 * Get the table name with WordPress prefix.
-	 *
-	 * @return string
-	 */
+	
 	private function get_table_name() {
 		global $wpdb;
 		return $wpdb->prefix . 'oidc_session_tokens';
 	}
 
-	/**
-	 * Encrypt a sensitive value using AES-256-CBC.
-	 *
-	 * @param string $value The value to encrypt.
-	 * @return string The encrypted value with 'enc:' prefix, or original value if empty.
-	 */
+	
 	private function encrypt( $value ) {
 		if ( empty( $value ) ) {
 			return $value;
@@ -66,12 +31,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		return 'enc:' . base64_encode( $iv . $encrypted );
 	}
 
-	/**
-	 * Decrypt a value encrypted with encrypt().
-	 *
-	 * @param string $value The encrypted value.
-	 * @return string The decrypted value, or original value if not encrypted or empty.
-	 */
+	
 	private function decrypt( $value ) {
 		if ( empty( $value ) || strpos( $value, 'enc:' ) !== 0 ) {
 			return $value;
@@ -85,25 +45,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		return openssl_decrypt( $encrypted, 'AES-256-CBC', $key, 0, $iv );
 	}
 
-	/**
-	 * Save token data to the database.
-	 *
-	 * Uses INSERT...ON DUPLICATE KEY UPDATE for atomic operations.
-	 * MySQL's row-level locking handles concurrent updates automatically.
-	 *
-	 * @param string $wp_session_token The WordPress session token.
-	 * @param int    $user_id          The WordPress user ID.
-	 * @param array  $token_data       Token data array containing:
-	 *                                 - access_token (string)
-	 *                                 - refresh_token (string|null)
-	 *                                 - id_token (string|null)
-	 *                                 - expires_in (int)
-	 *                                 - token_issued_at (int, defaults to time())
-	 *                                 - session_expiration (int)
-	 *                                 - last_userinfo_check (int, defaults to time())
-	 *
-	 * @return bool True on success, false on failure.
-	 */
+	
 	public function save_token( $wp_session_token, $user_id, $token_data ) {
 		global $wpdb;
 
@@ -113,7 +55,7 @@ class OpenID_Connect_Generic_Token_Storage {
 
 		$table_name = $this->get_table_name();
 
-		// Extract token data with defaults.
+
 		$access_token = $this->encrypt( $token_data['access_token'] ?? '' );
 		$refresh_token = $token_data['refresh_token'] ? $this->encrypt( $token_data['refresh_token'] ) : null;
 		$id_token = $token_data['id_token'] ? $this->encrypt( $token_data['id_token'] ) : null;
@@ -122,7 +64,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		$session_expiration = isset( $token_data['session_expiration'] ) ? intval( $token_data['session_expiration'] ) : 0;
 		$last_userinfo_check = isset( $token_data['last_userinfo_check'] ) ? intval( $token_data['last_userinfo_check'] ) : time();
 
-		// Use INSERT...ON DUPLICATE KEY UPDATE for atomic operation.
+
 		$sql = $wpdb->prepare(
 			"INSERT INTO {$table_name} 
 			(wp_session_token, user_id, access_token, refresh_token, id_token, expires_in, token_issued_at, session_expiration, last_userinfo_check)
@@ -166,13 +108,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		return true;
 	}
 
-	/**
-	 * Get token data from the database.
-	 *
-	 * @param string $wp_session_token The WordPress session token.
-	 *
-	 * @return array|null Token data array or null if not found.
-	 */
+	
 	public function get_token( $wp_session_token ) {
 		global $wpdb;
 
@@ -194,7 +130,7 @@ class OpenID_Connect_Generic_Token_Storage {
 			return null;
 		}
 
-		// Convert database row to token response format.
+
 		$token_data = array(
 			'access_token'      => $this->decrypt( $row['access_token'] ),
 			'refresh_token'     => $row['refresh_token'] ? $this->decrypt( $row['refresh_token'] ) : null,
@@ -209,13 +145,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		return $token_data;
 	}
 
-	/**
-	 * Delete token from the database.
-	 *
-	 * @param string $wp_session_token The WordPress session token.
-	 *
-	 * @return bool True on success, false on failure.
-	 */
+	
 	public function delete_token( $wp_session_token ) {
 		global $wpdb;
 
@@ -234,13 +164,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		return false !== $result;
 	}
 
-	/**
-	 * Claim the refresh stamp for this session (atomic). Only one request can win.
-	 *
-	 * @param string $wp_session_token The WordPress session token.
-	 * @param int    $timeout          Seconds after which a stale stamp can be reclaimed. Default 30.
-	 * @return bool True if this request won the stamp (rows affected = 1), false otherwise.
-	 */
+	
 	public function claim_refresh( $wp_session_token, $timeout = 30 ) {
 		global $wpdb;
 
@@ -265,12 +189,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		return $rows === 1;
 	}
 
-	/**
-	 * Release the refresh stamp for this session.
-	 *
-	 * @param string $wp_session_token The WordPress session token.
-	 * @return bool True on success.
-	 */
+	
 	public function release_refresh( $wp_session_token ) {
 		global $wpdb;
 
@@ -290,14 +209,7 @@ class OpenID_Connect_Generic_Token_Storage {
 		return true;
 	}
 
-	/**
-	 * Clean up expired tokens from the database.
-	 *
-	 * Deletes tokens where session_expiration < current timestamp.
-	 * Called by daily cron job.
-	 *
-	 * @return int Number of rows deleted.
-	 */
+	
 	public function cleanup_expired_tokens() {
 		global $wpdb;
 

@@ -1,121 +1,17 @@
 <?php
-/**
- * WordPress options handling class.
- *
- * @package   OpenID_Connect_Generic
- * @category  Settings
- * @author    Rokas Zakarauskas <rokas@airomi.lt>
- * @copyright Rokas Zakarauskas
- * @license   http://www.gnu.org/licenses/gpl-2.0.txt GPL-2.0+
- */
 
-/**
- * OpenId_Connect_Generic_Option_Settings class.
- *
- * WordPress options handling.
- *
- * @package OpenID_Connect_Generic
- * @category  Settings
- *
- * Legacy Settings:
- *
- * @property string $ep_login    The login endpoint.
- * @property string $ep_token    The token endpoint.
- * @property string $ep_userinfo The userinfo endpoint.
- *
- * OAuth Client Settings:
- *
- * @property string $login_type           How the client (login form) should provide login options.
- * @property string $client_id            The ID the client will be recognized as when connecting the to Identity provider server.
- * @property string $client_secret        The secret key the IDP server expects from the client.
- * @property string $scope                The list of scopes this client should access.
- * @property string $discovery_url         The OIDC discovery endpoint URL.
- * @property string $failure_redirect_url  Where to redirect users when IDP discovery fails.
- * @property string $endpoint_login        The IDP authorization endpoint URL (resolved from discovery).
- * @property string $endpoint_userinfo     The IDP User information endpoint URL (resolved from discovery).
- * @property string $endpoint_token        The IDP token validation endpoint URL (resolved from discovery).
- * @property string $endpoint_end_session  The IDP logout endpoint URL (resolved from discovery).
- * @property bool   $discovery_failed      Runtime flag set when discovery fetch fails.
- * @property string $acr_values           The Authentication contract as defined on the IDP.
- *
- * Non-standard Settings:
- *
- * @property bool   $no_sslverify           The flag to enable/disable SSL verification during authorization.
- * @property int    $http_request_timeout   The timeout for requests made to the IDP. Default value is 5.
- * @property string $identity_key           The key in the user claim array to find the user's identification data.
- * @property string $nickname_key           The key in the user claim array to find the user's nickname.
- * @property string $email_format           The key(s) in the user claim array to formulate the user's email address.
- * @property string $displayname_format     The key(s) in the user claim array to formulate the user's display name.
- * @property bool   $enable_nickname_format The flag to enable nickname formatting with random digits for both nickname and display name.
- * @property string $nickname_format        The format string for generating nickname/display name when nickname formatting is enabled.
- * @property bool   $identify_with_username The flag which indicates how the user's identity will be determined.
- * @property int    $state_time_limit       The valid time limit of the state, in seconds. Defaults to 180 seconds.
- *
- * Plugin Settings:
- *
- * @property bool   $enforce_privacy                   The flag to indicates whether a user us required to be authenticated to access the site.
- * @property bool   $alternate_redirect_uri            The flag to indicate whether to use the alternative redirect URI.
- * @property bool   $token_refresh_enable              The flag whether to support refresh tokens by IDPs.
- * @property bool   $link_existing_users               The flag to indicate whether to link to existing WordPress-only accounts or greturn an error.
- * @property bool   $create_if_does_not_exist          The flag to indicate whether to create new users or not.
- * @property bool   $redirect_user_back                The flag to indicate whether to redirect the user back to the page on which they started.
- * @property bool   $enable_logging                    The flag to enable/disable logging.
- * @property int    $log_limit                         The maximum number of log entries to keep.
- * @property bool   $disable_password_auth             The flag to disable standard password authentication (Application Passwords still work).
- * @property bool   $disable_password_reset            The flag to disable password reset functionality.
- * @property bool   $enable_woocommerce_oidc           The flag to enable OIDC button on WooCommerce forms.
- * @property bool   $disable_woocommerce_password_auth The flag to disable WooCommerce password authentication.
- * @property bool   $disable_woocommerce_edit_account_fields The flag to disable password, email, and name fields in WooCommerce edit account form.
- * @property string $login_button_text                 Custom text for the login button.
- * @property int    $login_button_image_id             Attachment ID for optional login button logo.
- * @property string $sync_userinfo_button_text        Custom text for the sync userinfo button.
- * @property string $sync_userinfo_success_message    Custom success message displayed after syncing user info.
- * @property bool   $enable_magic_link                The flag to enable the magic-link REST endpoint and consumer for trusted-backend SSO handoff.
- *
- * Role Mapping Settings:
- *
- * @property bool   $enable_role_mapping The flag to enable/disable role mapping from OIDC claims.
- * @property string $default_role        The default WordPress role to assign when no claim mapping matches.
- * @property string $role_claim_key      The claim key path to read role values from (e.g., "info.permissions").
- * @property array  $role_mappings       Array of claim value to WordPress role mappings.
- *
- * Claim Meta Mapping Settings:
- *
- * @property bool  $enable_claim_meta_mapping The flag to enable/disable copying OIDC claim values into WordPress user meta.
- * @property array $claim_meta_mappings       Array of claim key to WordPress user meta key mappings.
- *
- * OIDC Session Lifecycle Settings:
- *
- * @property int  $userinfo_check_interval        Interval in seconds for userinfo endpoint validation (default: 600).
- */
 class OpenID_Connect_Generic_Option_Settings {
 
-	/**
-	 * WordPress option name/key.
-	 *
-	 * @var string
-	 */
+
 	const OPTION_NAME = 'openid_connect_generic_settings';
 
-	/**
-	 * Stored option values array.
-	 *
-	 * @var array<mixed>
-	 */
+
 	private $values;
 
-	/**
-	 * Default plugin settings values.
-	 *
-	 * @var array<mixed>
-	 */
+
 	private $default_settings;
 
-	/**
-	 * List of settings that can be defined by environment variables.
-	 *
-	 * @var array<string,string>
-	 */
+
 	private $environment_settings = array(
 		'client_id'                 => 'OIDC_CLIENT_ID',
 		'client_secret'             => 'OIDC_CLIENT_SECRET',
@@ -131,19 +27,14 @@ class OpenID_Connect_Generic_Option_Settings {
 		'log_limit'                 => 'OIDC_LOG_LIMIT',
 	);
 
-	/**
-	 * The class constructor.
-	 *
-	 * @param array<mixed> $default_settings  The default plugin settings values.
-	 * @param bool         $granular_defaults The granular defaults.
-	 */
+
 	public function __construct( $default_settings = array(), $granular_defaults = true ) {
 		$this->default_settings = $default_settings;
 		$this->values = array();
 
 		$this->values = (array) get_option( self::OPTION_NAME, $this->default_settings );
 
-		// For each defined environment variable/constant be sure the settings key is set.
+
 		foreach ( $this->environment_settings as $key => $constant ) {
 			if ( defined( $constant ) ) {
 				$this->__set( $key, constant( $constant ) );
@@ -155,86 +46,49 @@ class OpenID_Connect_Generic_Option_Settings {
 		}
 	}
 
-	/**
-	 * Magic getter for settings.
-	 *
-	 * @param string $key The array key/option name.
-	 *
-	 * @return mixed
-	 */
+
 	public function __get( $key ) {
 		if ( isset( $this->values[ $key ] ) ) {
 			return $this->values[ $key ];
 		}
 	}
 
-	/**
-	 * Magic setter for settings.
-	 *
-	 * @param string $key   The array key/option name.
-	 * @param mixed  $value The option value.
-	 *
-	 * @return void
-	 */
+
 	public function __set( $key, $value ) {
 		$this->values[ $key ] = $value;
 	}
 
-	/**
-	 * Magic method to check is an attribute isset.
-	 *
-	 * @param string $key The array key/option name.
-	 *
-	 * @return bool
-	 */
+
 	public function __isset( $key ) {
 		return isset( $this->values[ $key ] );
 	}
 
-	/**
-	 * Magic method to clear an attribute.
-	 *
-	 * @param string $key The array key/option name.
-	 *
-	 * @return void
-	 */
+
 	public function __unset( $key ) {
 		unset( $this->values[ $key ] );
 	}
 
-	/**
-	 * Get the plugin settings array.
-	 *
-	 * @return array
-	 */
+
 	public function get_values() {
 		return $this->values;
 	}
 
-	/**
-	 * Get the plugin WordPress options name.
-	 *
-	 * @return string
-	 */
+
 	public function get_option_name() {
 		return self::OPTION_NAME;
 	}
 
-	/**
-	 * Save the plugin options to the WordPress options table.
-	 *
-	 * @return void
-	 */
+
 	public function save() {
 
-		// For each defined environment variable/constant be sure it isn't saved to the database.
+
 		foreach ( $this->environment_settings as $key => $constant ) {
 			if ( defined( $constant ) ) {
 				$this->__unset( $key );
 			}
 		}
 
-		// Clear discovery cache so endpoints are re-fetched on next load.
+
 		delete_transient( 'oidc_discovery_document' );
 
 		update_option( self::OPTION_NAME, $this->values );

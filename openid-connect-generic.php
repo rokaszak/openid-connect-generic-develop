@@ -27,108 +27,28 @@
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  */
 
-/*
-Notes
-  Spec Doc - http://openid.net/specs/openid-connect-basic-1_0-32.html
-
-  Filters
-  - openid-connect-generic-alter-request       - 3 args: request array, plugin settings, specific request op
-  - openid-connect-generic-settings-fields     - modify the fields provided on the settings page
-  - openid-connect-generic-login-button-text   - modify the login button text
-  - openid-connect-generic-cookie-redirect-url - modify the redirect url stored as a cookie
-  - openid-connect-generic-user-login-test     - (bool) should the user be logged in based on their claim
-  - openid-connect-generic-user-creation-test  - (bool) should the user be created based on their claim
-  - openid-connect-generic-auth-url            - modify the authentication url
-  - openid-connect-generic-alter-user-claim    - modify the user_claim before a new user is created
-  - openid-connect-generic-alter-user-data     - modify user data before a new user is created
-  - openid-connect-modify-token-response-before-validation - modify the token response before validation
-  - openid-connect-modify-id-token-claim-before-validation - modify the token claim before validation
-
-  Actions
-  - openid-connect-generic-user-create                     - 2 args: fires when a new user is created by this plugin
-  - openid-connect-generic-user-update                     - 1 arg: user ID, fires when user is updated by this plugin
-  - openid-connect-generic-update-user-using-current-claim - 2 args: fires every time an existing user logs in and the claims are updated.
-  - openid-connect-generic-redirect-user-back              - 2 args: $redirect_url, $user. Allows interruption of redirect during login.
-  - openid-connect-generic-user-logged-in                  - 1 arg: $user, fires when user is logged in.
-  - openid-connect-generic-cron-daily                      - daily cron action
-  - openid-connect-generic-state-not-found                 - the given state does not exist in the database, regardless of its expiration.
-  - openid-connect-generic-state-expired                   - the given state exists, but expired before this login attempt.
-
-  Callable actions
-
-  User Meta
-  - openid-connect-generic-subject-identity    - the identity of the user provided by the idp
-  - openid-connect-generic-last-id-token-claim - the user's most recent id_token claim, decoded
-  - openid-connect-generic-last-user-claim     - the user's most recent user_claim
-  - openid-connect-generic-last-token-response - the user's most recent token response
-
-  Options
-  - openid_connect_generic_settings     - plugin settings
-  - openid-connect-generic-valid-states - locally stored generated states
-*/
-
-
-/**
- * OpenID_Connect_Generic class.
- *
- * Defines plugin initialization functionality.
- *
- * @package OpenID_Connect_Generic
- * @category  General
- */
 class OpenID_Connect_Generic
 {
 
-	/**
-	 * Singleton instance of self
-	 *
-	 * @var OpenID_Connect_Generic
-	 */
+
 	protected static $_instance = null;
 
-	/**
-	 * Plugin version.
-	 *
-	 * @var string
-	 */
+
 	const VERSION = '3.40.1';
 
-	/**
-	 * Plugin settings.
-	 *
-	 * @var OpenID_Connect_Generic_Option_Settings
-	 */
+
 	private $settings;
 
-	/**
-	 * Plugin logs.
-	 *
-	 * @var OpenID_Connect_Generic_Option_Logger
-	 */
+
 	private $logger;
 
-	/**
-	 * Airomi Connect client
-	 *
-	 * @var OpenID_Connect_Generic_Client
-	 */
+
 	private $client;
 
-	/**
-	 * Client wrapper.
-	 *
-	 * @var OpenID_Connect_Generic_Client_Wrapper
-	 */
+
 	public $client_wrapper;
 
-	/**
-	 * Setup the plugin
-	 *
-	 * @param OpenID_Connect_Generic_Option_Settings $settings The settings object.
-	 * @param OpenID_Connect_Generic_Option_Logger   $logger   The loggin object.
-	 *
-	 * @return void
-	 */
+
 	public function __construct(OpenID_Connect_Generic_Option_Settings $settings, OpenID_Connect_Generic_Option_Logger $logger)
 	{
 		$this->settings = $settings;
@@ -136,16 +56,12 @@ class OpenID_Connect_Generic
 		self::$_instance = $this;
 	}
 
-	// @codeCoverageIgnoreStart
 
-	/**
-	 * WordPress Hook 'init'.
-	 *
-	 * @return void
-	 */
+
+
 	public function init()
 	{
-		// Resolve endpoints from OIDC Discovery if configured.
+
 		$this->resolve_discovery_endpoints();
 
 		$this->client = new OpenID_Connect_Generic_Client(
@@ -171,27 +87,27 @@ class OpenID_Connect_Generic
 
 		OpenID_Connect_Generic_Login_Form::register($this->settings, $this->client_wrapper);
 
-		// Register WooCommerce integration if enabled and WooCommerce is active.
+
 		if (
 			class_exists('WooCommerce') &&
-			(!empty($this->settings->enable_woocommerce_oidc) || 
+			(!empty($this->settings->enable_woocommerce_oidc) ||
 			 !empty($this->settings->disable_woocommerce_password_auth) ||
 			 !empty($this->settings->disable_woocommerce_edit_account_fields))
 		) {
 			OpenID_Connect_Generic_WooCommerce_Integration::register($this->settings, $this->client_wrapper);
 		}
 
-		// Register Bricks Builder integration if Bricks is active.
+
 		OpenID_Connect_Generic_Bricks_Integration::register();
 
-		// Register magic link bridge if enabled.
+
 		OpenID_Connect_Generic_Magic_Link_Rest::register($this->settings, $this->logger, $this->client_wrapper);
 		OpenID_Connect_Generic_Magic_Link_Consumer::register($this->settings, $this->logger, $this->client_wrapper);
 
-		// Add a shortcode to get the auth URL.
+
 		add_shortcode('openid_connect_generic_auth_url', array($this->client_wrapper, 'get_authentication_url'));
 
-		// Add actions to our scheduled cron jobs.
+
 		add_action('openid-connect-generic-cron-daily', array($this, 'cron_states_garbage_collection'));
 
 		if (is_admin()) {
@@ -199,22 +115,10 @@ class OpenID_Connect_Generic
 		}
 	}
 
-	/**
-	 * Transient key for cached discovery document.
-	 *
-	 * @var string
-	 */
+
 	const DISCOVERY_TRANSIENT = 'oidc_discovery_document';
 
-	/**
-	 * Fetch the OIDC discovery document and populate endpoint settings.
-	 *
-	 * Uses a WordPress transient to cache the document for 1 hour.
-	 * On failure with no cache, sets discovery_failed flag so login can redirect
-	 * to the failure URL instead of showing a broken auth link.
-	 *
-	 * @return void
-	 */
+
 	private function resolve_discovery_endpoints()
 	{
 		$discovery_url = $this->settings->discovery_url;
@@ -222,11 +126,11 @@ class OpenID_Connect_Generic
 			return;
 		}
 
-		// Try cached document first.
+
 		$document = get_transient(self::DISCOVERY_TRANSIENT);
 
 		if (false === $document) {
-			// Fetch fresh discovery document.
+
 			$response = wp_remote_get(
 				$discovery_url,
 				array(
@@ -246,7 +150,7 @@ class OpenID_Connect_Generic
 					'discovery',
 					null
 				);
-				// Flag so login form can redirect to failure URL.
+
 				$this->settings->discovery_failed = true;
 				return;
 			}
@@ -265,11 +169,11 @@ class OpenID_Connect_Generic
 				return;
 			}
 
-			// Cache for 1 hour.
+
 			set_transient(self::DISCOVERY_TRANSIENT, $document, HOUR_IN_SECONDS);
 		}
 
-		// Map standard OIDC discovery fields to plugin settings.
+
 		$map = array(
 			'authorization_endpoint' => 'endpoint_login',
 			'token_endpoint' => 'endpoint_token',
@@ -284,13 +188,7 @@ class OpenID_Connect_Generic
 		}
 	}
 
-	/**
-	 * Get the default redirect URI.
-	 *
-	 * @param OpenID_Connect_Generic_Option_Settings $settings The settings object.
-	 *
-	 * @return string
-	 */
+
 	public function get_redirect_uri(OpenID_Connect_Generic_Option_Settings $settings)
 	{
 		$redirect_uri = admin_url('admin-ajax.php?action=openid-connect-authorize');
@@ -302,17 +200,11 @@ class OpenID_Connect_Generic
 		return $redirect_uri;
 	}
 
-	/**
-	 * Get the default state time limit.
-	 *
-	 * @param OpenID_Connect_Generic_Option_Settings $settings The settings object.
-	 *
-	 * @return int
-	 */
+
 	public function get_state_time_limit(OpenID_Connect_Generic_Option_Settings $settings)
 	{
 		$state_time_limit = 180;
-		// State time limit cannot be zero.
+
 		if ($settings->state_time_limit) {
 			$state_time_limit = intval($settings->state_time_limit);
 		}
@@ -320,16 +212,11 @@ class OpenID_Connect_Generic
 		return $state_time_limit;
 	}
 
-	/**
-	 * Check if privacy enforcement is enabled, and redirect users that aren't
-	 * logged in.
-	 *
-	 * @return void
-	 */
+
 	public function enforce_privacy_redirect()
 	{
 		if ($this->settings->enforce_privacy && !is_user_logged_in()) {
-			// The client endpoint relies on the wp-admin ajax endpoint.
+
 			if (
 				!defined('DOING_AJAX') ||
 				!boolval(constant('DOING_AJAX')) ||
@@ -341,13 +228,7 @@ class OpenID_Connect_Generic
 		}
 	}
 
-	/**
-	 * Enforce privacy settings for rss feeds.
-	 *
-	 * @param string $content The content.
-	 *
-	 * @return mixed
-	 */
+
 	public function enforce_privacy_feeds($content)
 	{
 		if ($this->settings->enforce_privacy && !is_user_logged_in()) {
@@ -356,11 +237,7 @@ class OpenID_Connect_Generic
 		return $content;
 	}
 
-	/**
-	 * Create the OIDC session tokens database table.
-	 *
-	 * @return void
-	 */
+
 	public static function create_token_table()
 	{
 		global $wpdb;
@@ -388,11 +265,7 @@ class OpenID_Connect_Generic
 		dbDelta($sql);
 	}
 
-	/**
-	 * Add refresh_started_at column to token table for existing installs.
-	 *
-	 * @return void
-	 */
+
 	public static function maybe_add_refresh_started_at_column()
 	{
 		global $wpdb;
@@ -408,35 +281,27 @@ class OpenID_Connect_Generic
 		}
 	}
 
-	/**
-	 * Remove legacy refresh lock options from wp_options (pre stamp-guard locking).
-	 *
-	 * @return void
-	 */
+
 	public static function cleanup_legacy_refresh_lock_options()
 	{
 		global $wpdb;
 		$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_oidc_refresh_lock_%'");
 	}
 
-	/**
-	 * Handle plugin upgrades
-	 *
-	 * @return void
-	 */
+
 	public function upgrade()
 	{
 		$last_version = get_option('openid-connect-generic-plugin-version', 0);
 		$settings = $this->settings;
 
 		if (version_compare(self::VERSION, $last_version, '>')) {
-			// An upgrade is required.
+
 			self::setup_cron_jobs();
 			self::create_token_table();
 			self::maybe_add_refresh_started_at_column();
 			self::cleanup_legacy_refresh_lock_options();
 
-			// @todo move this to another file for upgrade scripts
+
 			if (isset($settings->ep_login)) {
 				$settings->endpoint_login = $settings->ep_login;
 				$settings->endpoint_token = $settings->ep_token;
@@ -446,17 +311,12 @@ class OpenID_Connect_Generic
 				$settings->save();
 			}
 
-			// Update the stored version number.
+
 			update_option('openid-connect-generic-plugin-version', self::VERSION);
 		}
 	}
 
-	/**
-	 * Expire state transients by attempting to access them and allowing the
-	 * transient's own mechanisms to delete any that have expired.
-	 *
-	 * @return void
-	 */
+
 	public function cron_states_garbage_collection()
 	{
 		global $wpdb;
@@ -469,18 +329,14 @@ class OpenID_Connect_Generic
 			}
 		}
 
-		// Clean up expired OIDC session tokens.
+
 		if (class_exists('OpenID_Connect_Generic_Token_Storage')) {
 			$token_storage = new OpenID_Connect_Generic_Token_Storage($this->logger);
 			$token_storage->cleanup_expired_tokens();
 		}
 	}
 
-	/**
-	 * Ensure cron jobs are added to the schedule.
-	 *
-	 * @return void
-	 */
+
 	public static function setup_cron_jobs()
 	{
 		if (!wp_next_scheduled('openid-connect-generic-cron-daily')) {
@@ -488,34 +344,20 @@ class OpenID_Connect_Generic
 		}
 	}
 
-	/**
-	 * Activation hook.
-	 *
-	 * @return void
-	 */
+
 	public static function activation()
 	{
 		self::setup_cron_jobs();
 		self::create_token_table();
 	}
 
-	/**
-	 * Deactivation hook.
-	 *
-	 * @return void
-	 */
+
 	public static function deactivation()
 	{
 		wp_clear_scheduled_hook('openid-connect-generic-cron-daily');
 	}
 
-	/**
-	 * Simple autoloader.
-	 *
-	 * @param string $class The class name.
-	 *
-	 * @return void
-	 */
+
 	public static function autoload($class)
 	{
 		$prefix = 'OpenID_Connect_Generic_';
@@ -526,7 +368,7 @@ class OpenID_Connect_Generic
 
 		$filename = $class . '.php';
 
-		// Internal files are all lowercase and use dashes in filenames.
+
 		if (false === strpos($filename, '\\')) {
 			$filename = strtolower(str_replace('_', '-', $filename));
 		} else {
@@ -540,24 +382,16 @@ class OpenID_Connect_Generic
 		}
 	}
 
-	/**
-	 * Instantiate the plugin and hook into WordPress.
-	 *
-	 * @return void
-	 */
+
 	public static function bootstrap()
 	{
-		/**
-		 * This is a documented valid call for spl_autoload_register.
-		 *
-		 * @link https://www.php.net/manual/en/function.spl-autoload-register.php#71155
-		 */
+
 		spl_autoload_register(array('OpenID_Connect_Generic', 'autoload'));
 
 		$settings = new OpenID_Connect_Generic_Option_Settings(
-			// Default settings values.
+
 			array(
-				// OAuth client settings.
+
 				'login_type' => defined('OIDC_LOGIN_TYPE') ? OIDC_LOGIN_TYPE : 'button',
 				'client_id' => defined('OIDC_CLIENT_ID') ? OIDC_CLIENT_ID : '',
 				'client_secret' => defined('OIDC_CLIENT_SECRET') ? OIDC_CLIENT_SECRET : '',
@@ -566,7 +400,7 @@ class OpenID_Connect_Generic
 				'failure_redirect_url' => '',
 				'acr_values' => defined('OIDC_ACR_VALUES') ? OIDC_ACR_VALUES : '',
 
-				// Non-standard settings.
+
 				'no_sslverify' => 0,
 				'http_request_timeout' => 60,
 				'identity_key' => 'preferred_username',
@@ -578,7 +412,7 @@ class OpenID_Connect_Generic
 				'identify_with_username' => false,
 				'state_time_limit' => 180,
 
-				// Plugin settings.
+
 				'enforce_privacy' => defined('OIDC_ENFORCE_PRIVACY') ? intval(OIDC_ENFORCE_PRIVACY) : 0,
 				'alternate_redirect_uri' => 0,
 				'token_refresh_enable' => 1,
@@ -597,13 +431,13 @@ class OpenID_Connect_Generic
 				'login_button_image_id' => 0,
 				'sync_userinfo_button_text' => '',
 
-				// Role mapping settings.
+
 				'enable_role_mapping' => 0,
 				'default_role' => 'subscriber',
 				'role_claim_key' => '',
 				'role_mappings' => array(),
 
-				// OIDC session lifecycle settings.
+
 				'userinfo_check_interval' => 600,
 			)
 		);
@@ -614,18 +448,14 @@ class OpenID_Connect_Generic
 
 		add_action('init', array($plugin, 'init'));
 
-		// Privacy hooks.
+
 		add_action('template_redirect', array($plugin, 'enforce_privacy_redirect'), 0);
 		add_filter('the_content_feed', array($plugin, 'enforce_privacy_feeds'), 999);
 		add_filter('the_excerpt_rss', array($plugin, 'enforce_privacy_feeds'), 999);
 		add_filter('comment_text_rss', array($plugin, 'enforce_privacy_feeds'), 999);
 	}
 
-	/**
-	 * Create (if needed) and return a singleton of self.
-	 *
-	 * @return OpenID_Connect_Generic
-	 */
+
 	public static function instance()
 	{
 		if (null === self::$_instance) {
@@ -640,5 +470,4 @@ OpenID_Connect_Generic::instance();
 register_activation_hook(__FILE__, array('OpenID_Connect_Generic', 'activation'));
 register_deactivation_hook(__FILE__, array('OpenID_Connect_Generic', 'deactivation'));
 
-// Provide publicly accessible plugin helper functions.
 require_once 'includes/functions.php';

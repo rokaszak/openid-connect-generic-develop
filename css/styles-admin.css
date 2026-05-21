@@ -4,14 +4,14 @@
 
 #logger-table .col-data pre {
 	margin: 0;
-	white-space: pre;           /* CSS 2.0 */
-	white-space: pre-wrap;      /* CSS 2.1 */
-	white-space: pre-line;      /* CSS 3.0 */
-	white-space: -pre-wrap;     /* Opera 4-6 */
-	white-space: -o-pre-wrap;   /* Opera 7 */
-	white-space: -moz-pre-wrap; /* Mozilla */
-	white-space: -hp-pre-wrap;  /* HP Printers */
-	word-wrap: break-word;      /* IE 5+ */
+	white-space: pre;
+	white-space: pre-wrap;
+	white-space: pre-line;
+	white-space: -pre-wrap;
+	white-space: -o-pre-wrap;
+	white-space: -moz-pre-wrap;
+	white-space: -hp-pre-wrap;
+	word-wrap: break-word;
 }
 
 #logger-table .col-details {
@@ -31,7 +31,6 @@
 	font-weight: bold;
 }
 
-/* Role Mappings Repeater */
 .oidc-role-mappings-repeater {
 	max-width: 800px;
 }
@@ -83,7 +82,6 @@
 	margin-top: 5px;
 }
 
-/* Image Picker */
 .oidc-image-picker-wrapper {
 	max-width: 600px;
 }
@@ -116,14 +114,12 @@
 	border-color: #a00;
 }
 
-/* Login Button with Logo */
 .openid-connect-login-button a.button img {
 	display: inline-block;
 	vertical-align: middle;
 	margin-right: 8px;
 }
 
-/* WooCommerce Button Styling */
 .woocommerce .openid-connect-login-button,
 .woocommerce-page .openid-connect-login-button {
 	margin: 1em 0;

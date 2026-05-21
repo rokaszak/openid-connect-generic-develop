@@ -1,27 +1,5 @@
 <?php
-/**
- * Magic Link REST endpoint.
- *
- * @package   OpenID_Connect_Generic
- * @category  Magic Link
- * @author    Rokas Zakarauskas <rokas@airomi.lt>
- * @copyright Rokas Zakarauskas
- * @license   http://www.gnu.org/licenses/gpl-2.0.txt GPL-2.0+
- */
 
-/**
- * OpenID_Connect_Generic_Magic_Link_Rest class.
- *
- * Exposes POST /wp-json/magic-link/v1/login. A trusted backend (typically
- * the IDP itself) authenticates with an admin Application Password and
- * posts a verified IDP token response. The plugin runs the same identity
- * resolution path as a normal OIDC callback and returns a single-use,
- * short-lived URL that, when opened in a browser, logs the resolved user
- * in via wp_set_auth_cookie.
- *
- * @package OpenID_Connect_Generic
- * @category  Magic Link
- */
 class OpenID_Connect_Generic_Magic_Link_Rest {
 
 	const ROUTE_NAMESPACE = 'magic-link/v1';
@@ -31,19 +9,13 @@ class OpenID_Connect_Generic_Magic_Link_Rest {
 	const NONCE_LENGTH    = 64;
 	const NONCE_TTL       = 60;
 
-	/**
-	 * @var OpenID_Connect_Generic_Option_Settings
-	 */
+
 	private $settings;
 
-	/**
-	 * @var OpenID_Connect_Generic_Option_Logger
-	 */
+
 	private $logger;
 
-	/**
-	 * @var OpenID_Connect_Generic_Client_Wrapper
-	 */
+
 	private $client_wrapper;
 
 	public function __construct( $settings, $logger, $client_wrapper ) {
@@ -52,13 +24,7 @@ class OpenID_Connect_Generic_Magic_Link_Rest {
 		$this->client_wrapper = $client_wrapper;
 	}
 
-	/**
-	 * @param OpenID_Connect_Generic_Option_Settings $settings
-	 * @param OpenID_Connect_Generic_Option_Logger   $logger
-	 * @param OpenID_Connect_Generic_Client_Wrapper  $client_wrapper
-	 *
-	 * @return OpenID_Connect_Generic_Magic_Link_Rest|null
-	 */
+
 	public static function register( $settings, $logger, $client_wrapper ) {
 		if ( empty( $settings->enable_magic_link ) ) {
 			return null;
@@ -88,24 +54,12 @@ class OpenID_Connect_Generic_Magic_Link_Rest {
 		);
 	}
 
-	/**
-	 * Only authenticated administrators may mint magic links.
-	 *
-	 * App Password authentication populates the current user; we then
-	 * require manage_options. Any non-admin (subscriber, customer, etc.)
-	 * is rejected.
-	 *
-	 * @return bool
-	 */
+
 	public function check_permission() {
 		return current_user_can( 'manage_options' );
 	}
 
-	/**
-	 * @param WP_REST_Request $request
-	 *
-	 * @return WP_REST_Response|WP_Error
-	 */
+
 	public function handle_issue( $request ) {
 		$token_response = $request->get_param( 'token_response' );
 

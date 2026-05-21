@@ -1,78 +1,27 @@
 <?php
-/**
- * Plugin OIDC/oAuth client warpper class.
- *
- * @package   OpenID_Connect_Generic
- * @category  Authentication
- * @author    Rokas Zakarauskas <rokas@airomi.lt>
- * @copyright Rokas Zakarauskas
- * @license   http://www.gnu.org/licenses/gpl-2.0.txt GPL-2.0+
- */
 
-/**
- * OpenID_Connect_Generic_Client_Wrapper class.
- *
- * Plugin OIDC/oAuth client wrapper class.
- *
- * @package  OpenID_Connect_Generic
- * @category Authentication
- */
 class OpenID_Connect_Generic_Client_Wrapper
 {
 
-	/**
-	 * The user redirect cookie key.
-	 *
-	 * @deprecated Redirection should be done via state transient and not cookies.
-	 *
-	 * @var string
-	 */
+
 	const COOKIE_REDIRECT_KEY = 'openid-connect-generic-redirect';
 
-	/**
-	 * The client object instance.
-	 *
-	 * @var OpenID_Connect_Generic_Client
-	 */
+
 	private $client;
 
-	/**
-	 * The settings object instance.
-	 *
-	 * @var OpenID_Connect_Generic_Option_Settings
-	 */
+
 	private $settings;
 
-	/**
-	 * The logger object instance.
-	 *
-	 * @var OpenID_Connect_Generic_Option_Logger
-	 */
+
 	private $logger;
 
-	/**
-	 * The token storage object instance.
-	 *
-	 * @var OpenID_Connect_Generic_Token_Storage
-	 */
+
 	private $token_storage;
 
-	/**
-	 * The return error onject.
-	 *
-	 * @example WP_Error if there was a problem, or false if no error
-	 *
-	 * @var bool|WP_Error
-	 */
+
 	private $error = false;
 
-	/**
-	 * Inject necessary objects and services into the client.
-	 *
-	 * @param OpenID_Connect_Generic_Client          $client   A plugin client object instance.
-	 * @param OpenID_Connect_Generic_Option_Settings $settings A plugin settings object instance.
-	 * @param OpenID_Connect_Generic_Option_Logger   $logger   A plugin logger object instance.
-	 */
+
 	public function __construct(OpenID_Connect_Generic_Client $client, OpenID_Connect_Generic_Option_Settings $settings, OpenID_Connect_Generic_Option_Logger $logger)
 	{
 		$this->client = $client;
@@ -81,26 +30,18 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$this->token_storage = new OpenID_Connect_Generic_Token_Storage($logger);
 	}
 
-	/**
-	 * Hook the client into WordPress.
-	 *
-	 * @param \OpenID_Connect_Generic_Client          $client   The plugin client instance.
-	 * @param \OpenID_Connect_Generic_Option_Settings $settings The plugin settings instance.
-	 * @param \OpenID_Connect_Generic_Option_Logger   $logger   The plugin logger instance.
-	 *
-	 * @return \OpenID_Connect_Generic_Client_Wrapper
-	 */
+
 	public static function register(OpenID_Connect_Generic_Client $client, OpenID_Connect_Generic_Option_Settings $settings, OpenID_Connect_Generic_Option_Logger $logger)
 	{
 		$client_wrapper = new self($client, $settings, $logger);
 
-		// Hook token validation to wp_loaded (runs after init, when sessions are available).
+
 		add_action('wp_loaded', array($client_wrapper, 'ensure_tokens_still_fresh'), 1);
 
-		// Clean up token on logout.
+
 		add_action('wp_logout', array($client_wrapper, 'cleanup_token_on_logout'), 10);
 
-		// Integrated logout - server-side POST to IDP instead of browser redirect.
+
 		if ($settings->endpoint_end_session) {
 			add_action('login_init', array($client_wrapper, 'intercept_logout_redirect'), 1);
 			add_action('wp_ajax_oidc_logout', array($client_wrapper, 'ajax_logout'));
@@ -108,20 +49,17 @@ class OpenID_Connect_Generic_Client_Wrapper
 			add_action('admin_footer', array($client_wrapper, 'print_logout_script'));
 		}
 
-		// Alter the requests according to settings.
+
 		add_filter('openid-connect-generic-alter-request', array($client_wrapper, 'alter_request'), 10, 2);
 
 		if (is_admin()) {
-			/*
-			 * Use the ajax url to handle processing authorization without any html output
-			 * this callback will occur when then IDP returns with an authenticated value
-			 */
+
 			add_action('wp_ajax_openid-connect-authorize', array($client_wrapper, 'authentication_request_callback'));
 			add_action('wp_ajax_nopriv_openid-connect-authorize', array($client_wrapper, 'authentication_request_callback'));
 		}
 
 		if ($settings->alternate_redirect_uri) {
-			// Provide an alternate route for authentication_request_callback.
+
 			add_rewrite_rule('^openid-connect-authorize/?', 'index.php?openid-connect-authorize=1', 'top');
 			add_rewrite_tag('%openid-connect-authorize%', '1');
 			add_action('parse_request', array($client_wrapper, 'alternate_redirect_uri_parse_request'));
@@ -130,13 +68,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $client_wrapper;
 	}
 
-	/**
-	 * Implements WordPress parse_request action.
-	 *
-	 * @param WP_Query $query The WordPress query object.
-	 *
-	 * @return void
-	 */
+
 	public function alternate_redirect_uri_parse_request($query)
 	{
 		if (
@@ -148,50 +80,44 @@ class OpenID_Connect_Generic_Client_Wrapper
 		}
 	}
 
-	/**
-	 * Get the client login redirect.
-	 *
-	 * @return string
-	 */
+
 	public function get_redirect_to()
 	{
-		/*
-		 * @var WP $wp
-		 */
+
 		global $wp;
 
 		if (isset($GLOBALS['pagenow']) && 'wp-login.php' == $GLOBALS['pagenow'] && isset($_GET['action']) && 'logout' === $_GET['action']) {
 			return '';
 		}
 
-		// Default redirect to the homepage.
+
 		$redirect_url = home_url();
 
-		// If using the login form, default redirect to the admin dashboard.
+
 		if (isset($GLOBALS['pagenow']) && 'wp-login.php' == $GLOBALS['pagenow']) {
 			$redirect_url = admin_url();
 		}
 
-		// Honor Core WordPress & other plugin redirects.
+
 		if (isset($_REQUEST['redirect_to'])) {
 			$redirect_url = esc_url_raw(wp_unslash($_REQUEST['redirect_to']));
 		}
 
-		// Capture the current URL if set to redirect back to origin page.
+
 		if ($this->settings->redirect_user_back) {
 			if (!empty($wp->query_string)) {
 				$redirect_url = home_url('?' . $wp->query_string);
 			}
 			if (!empty($wp->request)) {
 				$redirect_url = home_url(add_query_arg(null, null));
-				// @phpstan-ignore-next-line
+
 				if ($wp->did_permalink) {
 					$redirect_url = home_url(add_query_arg($_GET, trailingslashit($wp->request)));
 				}
 			}
 		}
 
-		// This hook is being deprecated with the move away from cookies.
+
 		$redirect_url = apply_filters_deprecated(
 			'openid-connect-generic-cookie-redirect-url',
 			array($redirect_url),
@@ -199,20 +125,14 @@ class OpenID_Connect_Generic_Client_Wrapper
 			'openid-connect-generic-client-redirect-to'
 		);
 
-		// This is the new hook to use with the transients version of redirection.
+
 		return apply_filters('openid-connect-generic-client-redirect-to', $redirect_url);
 	}
 
-	/**
-	 * Create a single use authentication url
-	 *
-	 * @param array<string> $atts An optional array of override/feature attributes.
-	 *
-	 * @return string
-	 */
+
 	public function get_authentication_url($atts = array())
 	{
-		// If discovery failed and a failure redirect is configured, return that instead.
+
 		if (!empty($this->settings->discovery_failed) && !empty($this->settings->failure_redirect_url)) {
 			return $this->settings->failure_redirect_url;
 		}
@@ -230,7 +150,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			'openid_connect_generic_auth_url'
 		);
 
-		// Validate the redirect to value to prevent a redirection attack.
+
 		if (!empty($atts['redirect_to'])) {
 			$atts['redirect_to'] = wp_validate_redirect($atts['redirect_to'], home_url());
 		}
@@ -260,22 +180,15 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $url;
 	}
 
-	/**
-	 * Get formatted string with access token and WP session expiry info for logging.
-	 *
-	 * @param int   $user_id            The user ID.
-	 * @param array $token_response     The token response with expires_in and time.
-	 *
-	 * @return string Formatted expiry information.
-	 */
+
 	private function get_expiry_info_for_logging($user_id, $token_response = null)
 	{
-		// Get token response if not provided.
+
 		if (empty($token_response)) {
 			$token_response = $this->get_token_response_from_storage($user_id);
 		}
 
-		// Calculate access token expiry.
+
 		$access_token_expiry = 'N/A';
 		$token_issued_at = $token_response['token_issued_at'] ?? $token_response['time'] ?? null;
 		if (!empty($token_response['expires_in']) && !empty($token_issued_at)) {
@@ -283,7 +196,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$access_token_expiry = wp_date('Y-m-d H:i:s', $expiration_time);
 		}
 
-		// Get WordPress session expiry for the CURRENT session.
+
 		$wp_session_expiry = 'N/A';
 		$debug_info = '';
 		$current_session_token = wp_get_session_token();
@@ -291,7 +204,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		if (empty($current_session_token)) {
 			$debug_info = ' (no current session token)';
 		} else {
-			// Use WP_Session_Tokens manager API to avoid cache inconsistency with multiple sessions.
+
 			$manager = WP_Session_Tokens::get_instance($user_id);
 			$session = $manager->get($current_session_token);
 
@@ -311,34 +224,23 @@ class OpenID_Connect_Generic_Client_Wrapper
 		);
 	}
 
-	/**
-	 * Check if an error is a network/timeout error.
-	 *
-	 * Network/timeout errors should NOT result in logout since they are
-	 * temporary WordPress/server issues, not authentication failures.
-	 *
-	 * @param string      $error_code The WordPress error code to check.
-	 * @param WP_Error    $error_obj  Optional WP_Error object to check error data for HTTP status.
-	 *
-	 * @return bool True if this is a network/timeout error, false otherwise.
-	 */
+
 	private function is_network_timeout_error($error_code, $error_obj = null)
 	{
 		$network_error_codes = array(
-			'http_request_failed',        // cURL connection failed
-			'cURL error 28',              // Connection timeout
-			'cURL error 7',               // Failed to connect
-			'cURL error 6',               // Couldn't resolve host
-			'cURL error 35',              // SSL/TLS connection error
+			'http_request_failed',
+			'cURL error 28',
+			'cURL error 7',
+			'cURL error 6',
+			'cURL error 35',
 		);
 
-		// Check if error code matches any direct network error pattern.
+
 		foreach ($network_error_codes as $network_code) {
 			if (strpos($error_code, $network_code) !== false) {
 				return true;
 			}
 		}
-
 
 		if ($error_obj instanceof WP_Error) {
 			$error_data = $error_obj->get_error_data();
@@ -357,23 +259,15 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return false;
 	}
 
-	/**
-	 * Handle retrieval and validation of refresh_token.
-	 *
-	 * Validates access token via userinfo endpoint periodically and refreshes
-	 * if expired or invalid. This ensures WordPress session stays synchronized
-	 * with OIDC token lifecycle.
-	 *
-	 * @return void
-	 */
+
 	public function ensure_tokens_still_fresh()
 	{
-		// Skip if user not logged in (no logging for anonymous users).
+
 		if (!is_user_logged_in()) {
 			return;
 		}
 
-		// Skip if token refresh is disabled in settings.
+
 		if (!$this->settings->token_refresh_enable) {
 			return;
 		}
@@ -384,7 +278,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return;
 		}
 
-		// Read token data from database.
+
 		$last_token_response = $this->token_storage->get_token($token);
 		if (empty($last_token_response) || empty($last_token_response['access_token'])) {
 			if (!empty($this->settings->disable_password_auth)) {
@@ -408,11 +302,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return;
 		}
 
-		// Check local expiration first (free) before making any HTTP calls.
+
 		if (!empty($last_token_response['expires_in']) && !empty($last_token_response['token_issued_at'])) {
 			$expiration_time = intval($last_token_response['token_issued_at']) + intval($last_token_response['expires_in']);
 			if (time() >= $expiration_time) {
-				// On AJAX, skip refresh if token expired less than 30s ago; let the next page load handle it.
+
 				if (function_exists('wp_doing_ajax') && wp_doing_ajax() && (time() - $expiration_time) < 30) {
 					return;
 				}
@@ -421,8 +315,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 			}
 		}
 
-		// Token is not expired locally. Periodically validate with userinfo endpoint
-		// to catch server-side revocations (default: every 10 minutes).
+
+
 		$last_userinfo_check = $last_token_response['last_userinfo_check'] ?? 0;
 		$check_interval = !empty($this->settings->userinfo_check_interval)
 			? intval($this->settings->userinfo_check_interval)
@@ -455,17 +349,17 @@ class OpenID_Connect_Generic_Client_Wrapper
 					return;
 				}
 
-				// Authentication or other error - attempt token refresh.
+
 				$this->refresh_access_token($user_id);
 				return;
 			}
 
-			// Userinfo check successful - update last_userinfo_check timestamp.
+
 			$token_data = $last_token_response;
 			$token_data['last_userinfo_check'] = time();
 			$this->token_storage->save_token($token, $user_id, $token_data);
 
-			// Sync roles from fresh userinfo claims (e.g. catches revoked admin).
+
 			if (!is_wp_error($userinfo_result) && isset($userinfo_result['body'])) {
 				$fresh_claim = json_decode($userinfo_result['body'], true);
 				if (is_array($fresh_claim)) {
@@ -480,16 +374,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		}
 	}
 
-	/**
-	 * Refresh the access token using the refresh token.
-	 *
-	 * Uses a stamp in the token table so only one request performs the refresh;
-	 * others return immediately. No locking, sleeping, or polling.
-	 *
-	 * @param int $user_id The WordPress user ID.
-	 *
-	 * @return void
-	 */
+
 	private function refresh_access_token($user_id)
 	{
 		$token = wp_get_session_token();
@@ -669,12 +554,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 
-	/**
-	 * Get token response from database storage.
-	 *
-	 * @param int $user_id The user ID.
-	 * @return array|null Token response array or null if not found.
-	 */
 	private function get_token_response_from_storage($user_id)
 	{
 		$token = wp_get_session_token();
@@ -684,48 +563,25 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $this->token_storage->get_token($token);
 	}
 
-	/**
-	 * Get the current user's token response from storage.
-	 * Public method for use by integrations.
-	 *
-	 * @param int $user_id The user ID.
-	 *
-	 * @return array|null Token response array or null if not found.
-	 */
+
 	public function get_current_user_token_response($user_id)
 	{
 		return $this->get_token_response_from_storage($user_id);
 	}
 
-	/**
-	 * Get the client instance.
-	 * Public method for use by integrations.
-	 *
-	 * @return OpenID_Connect_Generic_Client The client instance.
-	 */
+
 	public function get_client()
 	{
 		return $this->client;
 	}
 
-	/**
-	 * Get the logger instance.
-	 *
-	 * @return OpenID_Connect_Generic_Option_Logger
-	 */
+
 	public function get_logger()
 	{
 		return $this->logger;
 	}
 
-	/**
-	 * Save OIDC token response to the database.
-	 *
-	 * @param string $token          The WordPress session token.
-	 * @param int    $user_id        The user ID.
-	 * @param array  $token_response The OIDC token response.
-	 * @return void
-	 */
+
 	private function save_token_to_db($token, $user_id, $token_response)
 	{
 		if (empty($token) || empty($user_id)) {
@@ -759,19 +615,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 
-	/**
-	 * Handle errors by redirecting the user to the login form along with an
-	 * error code
-	 *
-	 * @param WP_Error $error A WordPress error object.
-	 *
-	 * @return void
-	 */
 	public function error_redirect($error)
 	{
 		$this->logger->log($error, null, null);
 
-		// Redirect user back to login page.
+
 		wp_redirect(
 			wp_login_url() .
 			'?login-error=' . $error->get_error_code() .
@@ -780,26 +628,13 @@ class OpenID_Connect_Generic_Client_Wrapper
 		exit;
 	}
 
-	/**
-	 * Get the current error state.
-	 *
-	 * @return bool|WP_Error
-	 */
+
 	public function get_error()
 	{
 		return $this->error;
 	}
 
-	/**
-	 * Intercept logout to notify IDP via server-side POST before redirecting.
-	 *
-	 * Flow: save id_token → POST to IDP (5s timeout) → clear local session → redirect.
-	 * IDP call runs before wp_logout() because plugins hooking wp_logout may redirect/exit.
-	 * This is the server-side fallback for when JavaScript is not available.
-	 * The JS-based flow (ajax_logout) provides the spinner UX.
-	 *
-	 * @return void
-	 */
+
 	public function intercept_logout_redirect()
 	{
 		if (!isset($_GET['action']) || 'logout' !== $_GET['action']) {
@@ -808,7 +643,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		check_admin_referer('log-out');
 
-		// Step 1: Save the id_token before clearing anything.
+
 		$id_token = $this->get_current_id_token();
 		$user_id = get_current_user_id();
 		$user = wp_get_current_user();
@@ -824,26 +659,19 @@ class OpenID_Connect_Generic_Client_Wrapper
 			null
 		);
 
-		// Step 2: Notify IDP with 5 second timeout. Runs before wp_logout() because
-		// plugins hooking wp_logout may call wp_redirect()+exit and kill execution.
+
+
 		$this->notify_idp_logout($id_token);
 
-		// Step 3: Clear local session and tokens.
+
 		wp_logout();
 
-		// Step 4: Navigate to logged-out page.
+
 		wp_safe_redirect(home_url());
 		exit;
 	}
 
-	/**
-	 * Handle AJAX logout request from the frontend spinner flow.
-	 *
-	 * Flow: save id_token → POST to IDP (5s timeout) → clear local session → return JSON.
-	 * The frontend JS shows a spinner, calls this endpoint, then navigates on completion.
-	 *
-	 * @return void
-	 */
+
 	public function ajax_logout()
 	{
 		check_ajax_referer('oidc-logout', 'nonce');
@@ -853,7 +681,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return;
 		}
 
-		// Step 1: Save the id_token before clearing anything.
+
 		$id_token = $this->get_current_id_token();
 		$user_id = get_current_user_id();
 		$user = wp_get_current_user();
@@ -870,26 +698,17 @@ class OpenID_Connect_Generic_Client_Wrapper
 			null
 		);
 
-		// Step 2: Notify IDP with 5 second timeout.
+
 		$this->notify_idp_logout($id_token);
 
-		// Step 3: Clear local session and tokens.
+
 		wp_logout();
 
-		// Step 4: Return redirect URL for JS to navigate.
+
 		wp_send_json_success(array('redirect_url' => home_url()));
 	}
 
-	/**
-	 * Notify IDP of logout via server-side POST.
-	 *
-	 * Sends id_token_hint to the IDP end_session endpoint. Uses a 5 second timeout.
-	 * The result is logged but never blocks logout — the user is logged out regardless.
-	 *
-	 * @param string $id_token The saved id_token to send as id_token_hint.
-	 *
-	 * @return void
-	 */
+
 	private function notify_idp_logout($id_token)
 	{
 		$end_session_url = $this->settings->endpoint_end_session;
@@ -943,14 +762,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		);
 	}
 
-	/**
-	 * Print inline logout script in the footer.
-	 *
-	 * Intercepts logout link clicks, shows a spinner overlay, performs AJAX logout
-	 * (IDP notification + session cleanup), then navigates to home.
-	 *
-	 * @return void
-	 */
+
 	public function print_logout_script()
 	{
 		if (!is_user_logged_in() || empty($this->settings->endpoint_end_session)) {
@@ -991,11 +803,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		<?php
 	}
 
-	/**
-	 * Clean up token from database on logout.
-	 *
-	 * @return void
-	 */
+
 	public function cleanup_token_on_logout()
 	{
 		$wp_session_token = wp_get_session_token();
@@ -1004,11 +812,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		}
 	}
 
-	/**
-	 * Get the current user's ID token from session.
-	 *
-	 * @return string The ID token or empty string if not available.
-	 */
+
 	private function get_current_id_token()
 	{
 		if (!is_user_logged_in()) {
@@ -1025,14 +829,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return '';
 	}
 
-	/**
-	 * Modify outgoing requests according to settings.
-	 *
-	 * @param array<mixed> $request   The outgoing request array.
-	 * @param string       $operation The request operation name.
-	 *
-	 * @return mixed
-	 */
+
 	public function alter_request($request, $operation)
 	{
 		if (!empty($this->settings->http_request_timeout)) {
@@ -1046,45 +843,40 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $request;
 	}
 
-	/**
-	 * Control the authentication and subsequent authorization of the user when
-	 * returning from the IDP.
-	 *
-	 * @return void
-	 */
+
 	public function authentication_request_callback()
 	{
 		$client = $this->client;
 
-		// Start the authentication flow.
+
 		$authentication_request = $client->validate_authentication_request($_GET);
 
 		if (is_wp_error($authentication_request)) {
 			$this->error_redirect($authentication_request);
 		}
 
-		// Retrieve the authentication code from the authentication request.
+
 		$code = $client->get_authentication_code($authentication_request);
 
 		if (is_wp_error($code)) {
 			$this->error_redirect($code);
 		}
 
-		// Retrieve the authentication state from the authentication request.
+
 		$state = $client->get_authentication_state($authentication_request);
 
 		if (is_wp_error($state)) {
 			$this->error_redirect($state);
 		}
 
-		// Attempting to exchange an authorization code for an authentication token.
+
 		$token_result = $client->request_authentication_token($code);
 
 		if (is_wp_error($token_result)) {
 			$this->error_redirect($token_result);
 		}
 
-		// Get the decoded response from the authentication request result.
+
 		$token_response = $client->get_token_response($token_result);
 
 		$resolved = $this->resolve_user_from_token_response($token_response, array('source' => 'callback'));
@@ -1099,34 +891,34 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$user_claim       = $resolved['user_claim'];
 		$subject_identity = $resolved['subject_identity'];
 
-		// Login the found / created user.
+
 		$start_time = microtime(true);
 		$this->login_user($user, $token_response, $id_token_claim, $user_claim, $subject_identity);
 		$end_time = microtime(true);
-		// Log our success.
+
 		$this->logger->log("Successful login for: {$user->user_login} ({$user->ID})", 'login-success', $end_time - $start_time);
 
-		// Allow plugins / themes to take action once a user is logged in.
+
 		$start_time = microtime(true);
 		do_action('openid-connect-generic-user-logged-in', $user);
 		$end_time = microtime(true);
 		$this->logger->log('openid-connect-generic-user-logged-in', 'do_action', $end_time - $start_time);
 
-		// Default redirect to the homepage.
+
 		$redirect_url = home_url();
-		// Redirect user according to redirect set in state.
+
 		$state_object = get_transient('openid-connect-generic-state--' . $state);
-		// Get the redirect URL stored with the corresponding authentication request state.
+
 		if (!empty($state_object) && !empty($state_object[$state]) && !empty($state_object[$state]['redirect_to'])) {
 			$redirect_url = $state_object[$state]['redirect_to'];
 		}
 
-		// Provide backwards compatibility for customization using the deprecated cookie method.
+
 		if (!empty($_COOKIE[self::COOKIE_REDIRECT_KEY])) {
 			$redirect_url = esc_url_raw(wp_unslash($_COOKIE[self::COOKIE_REDIRECT_KEY]));
 		}
 
-		// Only do redirect-user-back action hook when the plugin is configured for it.
+
 		if ($this->settings->redirect_user_back) {
 			do_action('openid-connect-generic-redirect-user-back', $redirect_url, $user);
 		}
@@ -1136,75 +928,43 @@ class OpenID_Connect_Generic_Client_Wrapper
 		exit;
 	}
 
-	/**
-	 * Given a raw token response from the IDP, run the same validation,
-	 * userinfo retrieval, claim validation and user lookup/creation flow
-	 * that the standard authentication callback uses, and return the
-	 * resolved bundle for downstream login.
-	 *
-	 * Extracted from authentication_request_callback() so that any flow
-	 * that already possesses a verified IDP token response (e.g. the
-	 * magic-link bridge) can reuse the same permission and identity
-	 * resolution logic without duplication.
-	 *
-	 * On success returns:
-	 *   array{
-	 *     user: WP_User,
-	 *     token_response: array,
-	 *     id_token_claim: array,
-	 *     user_claim: array,
-	 *     subject_identity: string
-	 *   }
-	 *
-	 * On any failure returns the originating WP_Error so the caller can
-	 * decide how to surface it (redirect, REST response, etc.).
-	 *
-	 * @param array $token_response Raw token response (as returned by Client::get_token_response()).
-	 * @param array $context        Optional context. Recognised keys:
-	 *                              - 'source' (string): identifier for the calling flow, used for logging.
-	 *
-	 * @return array|WP_Error
-	 */
+
 	public function resolve_user_from_token_response($token_response, $context = array())
 	{
 		$client = $this->client;
 
-		// Allow for other plugins to alter data before validation.
+
 		$token_response = apply_filters('openid-connect-modify-token-response-before-validation', $token_response);
 
 		if (is_wp_error($token_response)) {
 			return $token_response;
 		}
 
-		// Ensure the that response contains required information.
+
 		$valid = $client->validate_token_response($token_response);
 
 		if (is_wp_error($valid)) {
 			return $valid;
 		}
 
-		/**
-		 * The id_token is used to identify the authenticated user, e.g. for SSO.
-		 * The access_token must be used to prove access rights to protected
-		 * resources e.g. for the userinfo endpoint
-		 */
+
 		$id_token_claim = $client->get_id_token_claim($token_response);
 
-		// Allow for other plugins to alter data before validation.
+
 		$id_token_claim = apply_filters('openid-connect-modify-id-token-claim-before-validation', $id_token_claim);
 
 		if (is_wp_error($id_token_claim)) {
 			return $id_token_claim;
 		}
 
-		// Validate our id_token has required values.
+
 		$valid = $client->validate_id_token_claim($id_token_claim);
 
 		if (is_wp_error($valid)) {
 			return $valid;
 		}
 
-		// If userinfo endpoint is set, exchange the token_response for a user_claim.
+
 		if (!empty($this->settings->endpoint_userinfo) && isset($token_response['access_token'])) {
 			$user_claim = $client->get_user_claim($token_response);
 		} else {
@@ -1215,24 +975,20 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return $user_claim;
 		}
 
-		// Validate our user_claim has required values.
+
 		$valid = $client->validate_user_claim($user_claim, $id_token_claim);
 
 		if (is_wp_error($valid)) {
 			return $valid;
 		}
 
-		/**
-		 * End authorization
-		 * -
-		 * Request is authenticated and authorized - start user handling
-		 */
+
 		$subject_identity = $client->get_subject_identity($id_token_claim);
 		$user = $this->get_user_by_identity($subject_identity);
 
-		// A pre-existing IDP mapped user wasn't found.
+
 		if (!$user) {
-			// If linking existing users or creating new ones call the `create_new_user` method which handles both cases.
+
 			if ($this->settings->link_existing_users || $this->settings->create_if_does_not_exist) {
 				$user = $this->create_new_user($subject_identity, $user_claim);
 				if (is_wp_error($user)) {
@@ -1243,7 +999,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			}
 		}
 
-		// Validate the found / created user.
+
 		$valid = $this->validate_user($user);
 
 		if (is_wp_error($valid)) {
@@ -1259,16 +1015,10 @@ class OpenID_Connect_Generic_Client_Wrapper
 		);
 	}
 
-	/**
-	 * Validate the potential WP_User.
-	 *
-	 * @param WP_User|WP_Error|false $user The user object.
-	 *
-	 * @return true|WP_Error
-	 */
+
 	public function validate_user($user)
 	{
-		// Ensure the found user is a real WP_User.
+
 		if (!is_a($user, 'WP_User') || !$user->exists()) {
 			return new WP_Error('invalid-user', __('Invalid user.', 'daggerhart-openid-connect-generic'), $user);
 		}
@@ -1276,40 +1026,29 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return true;
 	}
 
-	/**
-	 * Refresh user claim.
-	 *
-	 * @param WP_User $user             The user object.
-	 * @param array   $token_response   The token response.
-	 *
-	 * @return WP_Error|array
-	 */
+
 	public function refresh_user_claim($user, $token_response)
 	{
 		$client = $this->client;
 
-		/**
-		 * The id_token is used to identify the authenticated user, e.g. for SSO.
-		 * The access_token must be used to prove access rights to protected
-		 * resources e.g. for the userinfo endpoint
-		 */
+
 		$id_token_claim = $client->get_id_token_claim($token_response);
 
-		// Allow for other plugins to alter data before validation.
+
 		$id_token_claim = apply_filters('openid-connect-modify-id-token-claim-before-validation', $id_token_claim);
 
 		if (is_wp_error($id_token_claim)) {
 			return $id_token_claim;
 		}
 
-		// Validate our id_token has required values.
+
 		$valid = $client->validate_id_token_claim($id_token_claim);
 
 		if (is_wp_error($valid)) {
 			return $valid;
 		}
 
-		// If userinfo endpoint is set, exchange the token_response for a user_claim.
+
 		if (!empty($this->settings->endpoint_userinfo) && isset($token_response['access_token'])) {
 			$user_claim = $client->get_user_claim($token_response);
 		} else {
@@ -1320,7 +1059,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return $user_claim;
 		}
 
-		// Validate our user_claim has required values.
+
 		$valid = $client->validate_user_claim($user_claim, $id_token_claim);
 
 		if (is_wp_error($valid)) {
@@ -1328,10 +1067,10 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return $valid;
 		}
 
-		// Capture the time so that access token expiration can be calculated later.
+
 		$token_response['time'] = time();
 
-		// Store the tokens in database.
+
 		$this->save_token_to_db(wp_get_session_token(), $user->ID, $token_response);
 		update_user_meta($user->ID, 'openid-connect-generic-last-id-token-claim', $id_token_claim);
 		update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $user_claim);
@@ -1339,43 +1078,32 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $user_claim;
 	}
 
-	/**
-	 * Record user meta data, and provide an authorization cookie.
-	 *
-	 * @param WP_User $user             The user object.
-	 * @param array   $token_response   The token response.
-	 * @param array   $id_token_claim   The ID token claim.
-	 * @param array   $user_claim       The authenticated user claim.
-	 * @param string  $subject_identity The subject identity from the IDP.
-	 *
-	 * @return void
-	 */
+
 	public function login_user($user, $token_response, $id_token_claim, $user_claim, $subject_identity): void
 	{
-		// Capture the time so that access token expiration can be calculated later.
+
 		$token_response['time'] = time();
 
 		update_user_meta($user->ID, 'openid-connect-generic-last-id-token-claim', $id_token_claim);
 		update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $user_claim);
 
-		// Assign role based on OIDC claim if role mapping is enabled.
+
 		$this->assign_user_role_from_claim($user, $user_claim);
 
-		// Copy configured claim values into user meta.
+
 		$this->sync_user_meta_from_claims($user, $user_claim);
 
-		// Allow plugins / themes to take action using current claims on existing user (e.g. update role).
+
 		do_action('openid-connect-generic-update-user-using-current-claim', $user, $user_claim);
 
-		// OIDC sessions always use persistent cookies (remember_me = true) to survive browser closes.
-		// This ties WordPress session lifetime to OIDC token lifecycle.
+
+
 		$remember_me = apply_filters('openid-connect-generic-remember-me', true, $user, $token_response, $id_token_claim, $user_claim, $subject_identity);
 
-		// Calculate session expiration based on OIDC token lifetime instead of fixed days.
+
 		$expiration = $this->get_wp_session_expiration_from_oidc($token_response);
 
 
-		// Log session and token expiration details.
 		$access_token_expires_in = !empty($token_response['expires_in']) ? intval($token_response['expires_in']) : 0;
 		$access_token_expires_at = $access_token_expires_in > 0 ? wp_date('Y-m-d H:i:s', time() + $access_token_expires_in) : 'N/A';
 		$session_expires_at = wp_date('Y-m-d H:i:s', $expiration);
@@ -1395,9 +1123,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$manager = WP_Session_Tokens::get_instance($user->ID);
 		$token = $manager->create($expiration);
 
-		// Save OIDC tokens to database.
-		$this->save_token_to_db($token, $user->ID, $token_response);
 
+		$this->save_token_to_db($token, $user->ID, $token_response);
 
 		$cookie_expiration_duration = $expiration - time();
 		$filter_callback = function ($expiration_time, $filter_user_id, $remember) use ($cookie_expiration_duration, $user) {
@@ -1414,26 +1141,16 @@ class OpenID_Connect_Generic_Client_Wrapper
 		do_action('wp_login', $user->user_login, $user);
 	}
 
-	/**
-	 * Calculate WordPress session expiration based on OIDC token lifetime.
-	 *
-	 * WordPress session should last as long as the refresh token is valid,
-	 * NOT as long as the access token. This allows transparent token refresh
-	 * to occur while the user's session remains active.
-	 *
-	 * @param array $token_response The OIDC token response containing expires_in.
-	 *
-	 * @return int Unix timestamp for session expiration.
-	 */
+
 	private function get_wp_session_expiration_from_oidc($token_response)
 	{
-		// If IDP returns refresh token expiration, use that.
+
 		if (!empty($token_response['refresh_expires_in'])) {
 			return time() + intval($token_response['refresh_expires_in']);
 		}
 
-		// Use a configurable session lifetime (default 1 days).
-		// This should match your refresh token lifetime or desired maximum session duration.
+
+
 		$session_lifetime = apply_filters(
 			'openid-connect-generic-session-lifetime',
 			7 * DAY_IN_SECONDS
@@ -1442,16 +1159,10 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return time() + $session_lifetime;
 	}
 
-	/**
-	 * Get the user that has meta data matching a
-	 *
-	 * @param string $subject_identity The IDP identity of the user.
-	 *
-	 * @return false|WP_User
-	 */
+
 	public function get_user_by_identity($subject_identity)
 	{
-		// Look for user by their openid-connect-generic-subject-identity value.
+
 		$user_query = new WP_User_Query(
 			array(
 				'meta_query' => array(
@@ -1460,12 +1171,12 @@ class OpenID_Connect_Generic_Client_Wrapper
 						'value' => $subject_identity,
 					),
 				),
-				// Override the default blog_id (get_current_blog_id) to find users on different sites of a multisite install.
+
 				'blog_id' => 0,
 			)
 		);
 
-		// If we found existing users, grab the first one returned.
+
 		if ($user_query->get_total() > 0) {
 			$users = $user_query->get_results();
 			return $users[0];
@@ -1474,20 +1185,14 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return false;
 	}
 
-	/**
-	 * Avoid user_login collisions by incrementing.
-	 *
-	 * @param array $user_claim The IDP authenticated user claim data.
-	 *
-	 * @return string|WP_Error
-	 */
+
 	private function get_username_from_claim($user_claim)
 	{
 
-		// @var string $desired_username
+
 		$desired_username = '';
 
-		// Allow settings to take first stab at username.
+
 		if (!empty($this->settings->identity_key) && isset($user_claim[$this->settings->identity_key])) {
 			$desired_username = $user_claim[$this->settings->identity_key];
 		}
@@ -1502,14 +1207,14 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$desired_username = $tmp[0];
 		}
 		if (empty($desired_username)) {
-			// Nothing to build a name from.
+
 			return new WP_Error('no-username', __('No appropriate username found.', 'daggerhart-openid-connect-generic'), $user_claim);
 		}
 
-		// Don't use the full email address for a username.
+
 		$_desired_username = explode('@', $desired_username);
 		$desired_username = $_desired_username[0];
-		// Use WordPress Core to sanitize the IDP username.
+
 		$sanitized_username = sanitize_user($desired_username, true);
 		if (empty($sanitized_username)) {
 			// translators: %1$s is the santitized version of the username from the IDP.
@@ -1519,17 +1224,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $sanitized_username;
 	}
 
-	/**
-	 * Get a nickname.
-	 *
-	 * @param array $user_claim The IDP authenticated user claim data.
-	 *
-	 * @return string|WP_Error|null
-	 */
+
 	private function get_nickname_from_claim($user_claim)
 	{
 		$desired_nickname = null;
-		// Allow settings to take first stab at nickname.
+
 		if (!empty($this->settings->nickname_key) && isset($user_claim[$this->settings->nickname_key])) {
 			$desired_nickname = $user_claim[$this->settings->nickname_key];
 		}
@@ -1542,20 +1241,14 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $desired_nickname;
 	}
 
-	/**
-	 * Generate a unique 3-digit suffix for a nickname base.
-	 *
-	 * @param string $base_name The base nickname to check uniqueness against.
-	 *
-	 * @return string A 3-digit suffix that produces a unique nickname.
-	 */
+
 	private function generate_unique_nickname_suffix($base_name)
 	{
 		$max_attempts = 50;
 		for ($i = 0; $i < $max_attempts; $i++) {
 			$suffix = str_pad(wp_rand(0, 999), 3, '0', STR_PAD_LEFT);
 			$candidate = $base_name . $suffix;
-			// Check that no existing user has this nickname.
+
 			$user_query = new WP_User_Query(array(
 				'meta_query' => array(
 					array(
@@ -1570,31 +1263,19 @@ class OpenID_Connect_Generic_Client_Wrapper
 				return $suffix;
 			}
 		}
-		// Fallback: use 5 digits if 3-digit space is exhausted.
+
 		return str_pad(wp_rand(0, 99999), 5, '0', STR_PAD_LEFT);
 	}
 
-	/**
-	 * Checks if $claimname is in the body or _claim_names of the userinfo.
-	 * If yes, returns the claim value. Otherwise, returns false.
-	 *
-	 * @param string $claimname the claim name to look for.
-	 * @param array  $userinfo the JSON to look in.
-	 * @param string $claimvalue the source claim value ( from the body of the JWT of the claim source).
-	 * @return true|false
-	 */
+
 	private function get_claim($claimname, $userinfo, &$claimvalue)
 	{
-		/**
-		 * If we find a simple claim, return it.
-		 */
+
 		if (array_key_exists($claimname, $userinfo)) {
 			$claimvalue = $userinfo[$claimname];
 			return true;
 		}
-		/**
-		 * If there are no aggregated claims, it is over.
-		 */
+
 		if (
 			!array_key_exists('_claim_names', $userinfo) ||
 			!array_key_exists('_claim_sources', $userinfo)
@@ -1605,29 +1286,21 @@ class OpenID_Connect_Generic_Client_Wrapper
 		if (!isset($claim_src_ptr)) {
 			return false;
 		}
-		/**
-		 * No reference found
-		 */
+
 		if (!array_key_exists($claimname, $claim_src_ptr)) {
 			return false;
 		}
 		$src_name = $claim_src_ptr[$claimname];
-		// Reference found, but no corresponding JWT. This is a malformed userinfo.
+
 		if (!array_key_exists($src_name, $userinfo['_claim_sources'])) {
 			return false;
 		}
 		$src = $userinfo['_claim_sources'][$src_name];
-		// Source claim is not a JWT. Abort.
+
 		if (!array_key_exists('JWT', $src)) {
 			return false;
 		}
-		/**
-		 * Extract claim from JWT.
-		 * FIXME: We probably want to verify the JWT signature/issuer here.
-		 * For example, using JWKS if applicable. For symmetrically signed
-		 * JWTs (HMAC), we need a way to specify the acceptable secrets
-		 * and each possible issuer in the config.
-		 */
+
 		$jwt = $src['JWT'];
 		list($header, $body, $rest) = explode('.', $jwt, 3);
 		$body_str = base64_decode($body, false);
@@ -1646,15 +1319,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 
-	/**
-	 * Build a string from the user claim according to the specified format.
-	 *
-	 * @param string $format               The format format of the user identity.
-	 * @param array  $user_claim           The authorized user claim.
-	 * @param bool   $error_on_missing_key Whether to return and error on a missing key.
-	 *
-	 * @return string|WP_Error
-	 */
 	private function format_string_with_claim($format, $user_claim, $error_on_missing_key = false)
 	{
 		$matches = null;
@@ -1688,14 +1352,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return $string;
 	}
 
-	/**
-	 * Get a displayname.
-	 *
-	 * @param array $user_claim           The authorized user claim.
-	 * @param bool  $error_on_missing_key Whether to return and error on a missing key.
-	 *
-	 * @return string|null|WP_Error
-	 */
+
 	private function get_displayname_from_claim($user_claim, $error_on_missing_key = false)
 	{
 		if (!empty($this->settings->displayname_format)) {
@@ -1704,14 +1361,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return null;
 	}
 
-	/**
-	 * Get an email.
-	 *
-	 * @param array $user_claim           The authorized user claim.
-	 * @param bool  $error_on_missing_key Whether to return and error on a missing key.
-	 *
-	 * @return string|null|WP_Error
-	 */
+
 	private function get_email_from_claim($user_claim, $error_on_missing_key = false)
 	{
 		if (!empty($this->settings->email_format)) {
@@ -1720,27 +1370,20 @@ class OpenID_Connect_Generic_Client_Wrapper
 		return null;
 	}
 
-	/**
-	 * Create a new user from details in a user_claim.
-	 *
-	 * @param string $subject_identity The authenticated user's identity with the IDP.
-	 * @param array  $user_claim       The authorized user claim.
-	 *
-	 * @return \WP_Error | \WP_User
-	 */
+
 	public function create_new_user($subject_identity, $user_claim)
 	{
 		$start_time = microtime(true);
 		$user_claim = apply_filters('openid-connect-generic-alter-user-claim', $user_claim);
 
-		// Default username & email to the subject identity.
+
 		$username = $subject_identity;
 		$email = $subject_identity;
 		$nickname = $subject_identity;
 		$displayname = $subject_identity;
 		$values_missing = false;
 
-		// Allow claim details to determine username, email, nickname and displayname.
+
 		$_email = $this->get_email_from_claim($user_claim, true);
 		if (is_wp_error($_email) || empty($_email)) {
 			$values_missing = true;
@@ -1769,11 +1412,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$displayname = $_displayname;
 		}
 
-		// Attempt another request for userinfo if some values are missing.
+
 		if ($values_missing && isset($user_claim['access_token']) && !empty($this->settings->endpoint_userinfo)) {
 			$user_claim_result = $this->client->request_userinfo($user_claim['access_token']);
 
-			// Make sure we didn't get an error.
+
 			if (is_wp_error($user_claim_result)) {
 				return new WP_Error('bad-user-claim-result', __('Bad user claim result.', 'daggerhart-openid-connect-generic'), $user_claim_result);
 			}
@@ -1785,7 +1428,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		if (is_wp_error($_email)) {
 			return $_email;
 		}
-		// Use the email address from the latest userinfo request if not empty.
+
 		if (!empty($_email)) {
 			$email = $_email;
 		}
@@ -1794,12 +1437,12 @@ class OpenID_Connect_Generic_Client_Wrapper
 		if (is_wp_error($_username)) {
 			return $_username;
 		}
-		// Use the username from the latest userinfo request if not empty.
+
 		if (!empty($_username)) {
 			$username = $_username;
 		}
 
-		// When nickname formatting is enabled, use the format + 3 random digits for both nickname and display name.
+
 		if (!empty($this->settings->enable_nickname_format) && !empty($this->settings->nickname_format)) {
 			$base_name = $this->format_string_with_claim($this->settings->nickname_format, $user_claim, true);
 			if (is_wp_error($base_name)) {
@@ -1812,7 +1455,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			if (is_wp_error($_nickname)) {
 				return $_nickname;
 			}
-			// Use the username as the nickname if the userinfo request nickname is empty.
+
 			if (empty($_nickname)) {
 				$nickname = $username;
 			}
@@ -1821,13 +1464,13 @@ class OpenID_Connect_Generic_Client_Wrapper
 			if (is_wp_error($_displayname)) {
 				return $_displayname;
 			}
-			// Use the nickname as the displayname if the userinfo request displayname is empty.
+
 			if (empty($_displayname)) {
 				$displayname = $nickname;
 			}
 		}
 
-		// Before trying to create the user, first check if a matching user exists.
+
 		if ($this->settings->link_existing_users) {
 			$uid = null;
 			if ($this->settings->identify_with_username) {
@@ -1836,18 +1479,18 @@ class OpenID_Connect_Generic_Client_Wrapper
 				$uid = email_exists($email);
 			}
 			if (!empty($uid)) {
-				// Check if the existing user is already linked to a different IDP identity.
+
 				$existing_sub = get_user_meta($uid, 'openid-connect-generic-subject-identity', true);
 				if (!empty($existing_sub) && $existing_sub !== strval($subject_identity)) {
-					// This WP account belongs to a different IDP user. Scramble its email
-					// so the new IDP user can get a fresh account with the correct email.
+
+
 					$orphaned_email = 'orphaned_' . $existing_sub . '_' . get_userdata($uid)->user_email;
 					wp_update_user(array('ID' => $uid, 'user_email' => $orphaned_email));
 					$this->logger->log(
 						"Orphaned user {$uid}: sub '{$existing_sub}' no longer matches incoming sub '{$subject_identity}'. Email changed to '{$orphaned_email}'.",
 						__METHOD__
 					);
-					// Fall through to create a new account for the new IDP identity.
+
 				} else {
 					$user = $this->update_existing_user($uid, $subject_identity);
 					do_action('openid-connect-generic-update-user-using-current-claim', $user, $user_claim);
@@ -1858,20 +1501,17 @@ class OpenID_Connect_Generic_Client_Wrapper
 			}
 		}
 
-		/**
-		 * Allow other plugins / themes to determine authorization of new accounts
-		 * based on the returned user claim.
-		 */
+
 		$create_user = apply_filters('openid-connect-generic-user-creation-test', $this->settings->create_if_does_not_exist, $user_claim);
 
 		if (!$create_user) {
 			return new WP_Error('cannot-authorize', __('Can not authorize.', 'daggerhart-openid-connect-generic'), $create_user);
 		}
 
-		// Copy the username for incrementing.
+
 		$_username = $username;
-		// Ensure prevention of linking usernames & collisions by incrementing the username if it exists.
-		// @example Original user gets "name", second user gets "name2", etc.
+
+
 		$count = 1;
 		while (username_exists($username)) {
 			$count++;
@@ -1889,67 +1529,53 @@ class OpenID_Connect_Generic_Client_Wrapper
 		);
 		$user_data = apply_filters('openid-connect-generic-alter-user-data', $user_data, $user_claim);
 
-		// Create the new user.
+
 		$uid = wp_insert_user($user_data);
 
-		// Make sure we didn't fail in creating the user.
+
 		if (is_wp_error($uid)) {
 			return new WP_Error('failed-user-creation', __('Failed user creation.', 'daggerhart-openid-connect-generic'), $uid);
 		}
 
-		// Retrieve our new user.
+
 		$user = get_user_by('id', $uid);
 
-		// Save some meta data about this new user for the future.
+
 		add_user_meta($user->ID, 'openid-connect-generic-subject-identity', (string) $subject_identity, true);
 
-		// Assign role based on OIDC claim if role mapping is enabled.
+
 		$this->assign_user_role_from_claim($user, $user_claim);
 
-		// Copy configured claim values into user meta.
+
 		$this->sync_user_meta_from_claims($user, $user_claim);
 
-		// Log the results.
+
 		$end_time = microtime(true);
 		$this->logger->log("New user created: {$user->user_login} ($uid)", __METHOD__, $end_time - $start_time);
 
-		// Allow plugins / themes to take action on new user creation.
+
 		do_action('openid-connect-generic-user-create', $user, $user_claim);
 
 		return $user;
 	}
 
-	/**
-	 * Update an existing user with OpenID Connect meta data
-	 *
-	 * @param int    $uid              The WordPress User ID.
-	 * @param string $subject_identity The subject identity from the IDP.
-	 *
-	 * @return WP_Error|WP_User
-	 */
+
 	public function update_existing_user($uid, $subject_identity)
 	{
-		// Add the OpenID Connect meta data.
+
 		update_user_meta($uid, 'openid-connect-generic-subject-identity', strval($subject_identity));
 
-		// Allow plugins / themes to take action on user update.
+
 		do_action('openid-connect-generic-user-update', $uid);
 
-		// Return our updated user.
+
 		return get_user_by('id', $uid);
 	}
 
-	/**
-	 * Assign WordPress role to user based on OIDC claim values.
-	 *
-	 * @param WP_User $user       The WordPress user object.
-	 * @param array   $user_claim The authenticated user claim from OIDC.
-	 *
-	 * @return void
-	 */
+
 	private function assign_user_role_from_claim($user, $user_claim)
 	{
-		// Check if role mapping is enabled.
+
 		if (empty($this->settings->enable_role_mapping)) {
 			return;
 		}
@@ -1958,43 +1584,43 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$role_mappings = $this->settings->role_mappings;
 		$default_role = $this->settings->default_role;
 
-		// Ensure we have a default role.
+
 		if (empty($default_role)) {
 			$default_role = 'subscriber';
 		}
 
-		// Check if the claim key exists in the user claim.
+
 		if (empty($role_claim_key) || !isset($user_claim[$role_claim_key])) {
-			// No claim key or claim doesn't exist, use default role.
+
 			$user->set_role($default_role);
 			return;
 		}
 
-		// Get the claim value(s).
+
 		$claim_value = $user_claim[$role_claim_key];
 
-		// Normalize to array - handle both single value and array formats.
+
 		if (!is_array($claim_value)) {
 			$claim_values = array($claim_value);
 		} else {
 			$claim_values = $claim_value;
 		}
 
-		// Use the first value from the array.
+
 		$first_claim_value = !empty($claim_values) ? $claim_values[0] : '';
 
-		// If no claim value, use default role.
+
 		if (empty($first_claim_value)) {
 			$user->set_role($default_role);
 			return;
 		}
 
-		// Try to find a matching role mapping.
+
 		$matched_role = null;
 		if (!empty($role_mappings) && is_array($role_mappings)) {
 			foreach ($role_mappings as $mapping) {
 				if (isset($mapping['claim_value']) && isset($mapping['wp_role'])) {
-					// Exact match (case-sensitive).
+
 					if ($mapping['claim_value'] === $first_claim_value) {
 						$matched_role = $mapping['wp_role'];
 						break;
@@ -2003,7 +1629,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			}
 		}
 
-		// Set the role - either matched or default.
+
 		if ($matched_role) {
 			$user->set_role($matched_role);
 		} else {
@@ -2011,19 +1637,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		}
 	}
 
-	/**
-	 * Copy configured OIDC claim values into WordPress user meta.
-	 *
-	 * For each configured mapping, the claim value (scalar or array) is written
-	 * to the named user meta key via update_user_meta — WP serializes arrays
-	 * automatically. If the claim is absent from the userinfo response, the meta
-	 * key is deleted to keep WP state in sync with the IDP.
-	 *
-	 * @param WP_User $user       The WordPress user object.
-	 * @param array   $user_claim The authenticated user claim from OIDC.
-	 *
-	 * @return void
-	 */
+
 	private function sync_user_meta_from_claims($user, $user_claim)
 	{
 		if (empty($this->settings->enable_claim_meta_mapping)) {

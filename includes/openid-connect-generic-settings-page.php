@@ -1,66 +1,23 @@
 <?php
-/**
- * Plugin Admin settings page class.
- *
- * @package   OpenID_Connect_Generic
- * @category  Settings
- * @author    Rokas Zakarauskas <rokas@airomi.lt>
- * @copyright Rokas Zakarauskas
- * @license   http://www.gnu.org/licenses/gpl-2.0.txt GPL-2.0+
- */
 
-/**
- * OpenID_Connect_Generic_Settings_Page class.
- *
- * Admin settings page.
- *
- * @package OpenID_Connect_Generic
- * @category  Settings
- */
 class OpenID_Connect_Generic_Settings_Page {
 
-	/**
-	 * Local copy of the settings provided by the base plugin.
-	 *
-	 * @var OpenID_Connect_Generic_Option_Settings
-	 */
+
 	private $settings;
 
-	/**
-	 * Instance of the plugin logger.
-	 *
-	 * @var OpenID_Connect_Generic_Option_Logger
-	 */
+
 	private $logger;
 
-	/**
-	 * The controlled list of settings & associated defined during
-	 * construction for i18n reasons.
-	 *
-	 * @var array
-	 */
+
 	private $settings_fields = array();
 
-	/**
-	 * Options page slug.
-	 *
-	 * @var string
-	 */
+
 	private $options_page_name = 'openid-connect-generic-settings';
 
-	/**
-	 * Options page settings group name.
-	 *
-	 * @var string
-	 */
+
 	private $settings_field_group;
 
-	/**
-	 * Settings page class constructor.
-	 *
-	 * @param OpenID_Connect_Generic_Option_Settings $settings The plugin settings object.
-	 * @param OpenID_Connect_Generic_Option_Logger   $logger   The plugin logging class object.
-	 */
+
 	public function __construct( OpenID_Connect_Generic_Option_Settings $settings, OpenID_Connect_Generic_Option_Logger $logger ) {
 
 		$this->settings             = $settings;
@@ -69,40 +26,28 @@ class OpenID_Connect_Generic_Settings_Page {
 
 		$fields = $this->get_settings_fields();
 
-		// Some simple pre-processing.
+
 		foreach ( $fields as $key => &$field ) {
 			$field['key']  = $key;
 			$field['name'] = $this->settings->get_option_name() . '[' . $key . ']';
 		}
 
-		// Allow alterations of the fields.
+
 		$this->settings_fields = $fields;
 	}
 
-	/**
-	 * Hook the settings page into WordPress.
-	 *
-	 * @param OpenID_Connect_Generic_Option_Settings $settings A plugin settings object instance.
-	 * @param OpenID_Connect_Generic_Option_Logger   $logger   A plugin logger object instance.
-	 *
-	 * @return void
-	 */
+
 	public static function register( OpenID_Connect_Generic_Option_Settings $settings, OpenID_Connect_Generic_Option_Logger $logger ) {
 		$settings_page = new self( $settings, $logger );
 
-		// Add our options page the the admin menu.
+
 		add_action( 'admin_menu', array( $settings_page, 'admin_menu' ) );
 
-		// Register our settings.
+
 		add_action( 'admin_init', array( $settings_page, 'admin_init' ) );
 	}
 
-	/**
-	 * Implements hook admin_menu to add our options/settings page to the
-	 *  dashboard menu.
-	 *
-	 * @return void
-	 */
+
 	public function admin_menu() {
 		add_options_page(
 			__( 'Airomi Connect', 'daggerhart-openid-connect-generic' ),
@@ -113,11 +58,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		);
 	}
 
-	/**
-	 * Implements hook admin_init to register our settings.
-	 *
-	 * @return void
-	 */
+
 	public function admin_init() {
 		register_setting(
 			$this->settings_field_group,
@@ -170,14 +111,14 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->options_page_name
 	);
 
-		// Preprocess fields and add them to the page.
+
 		foreach ( $this->settings_fields as $key => $field ) {
-			// Make sure each key exists in the settings array.
+
 			if ( ! isset( $this->settings->{ $key } ) ) {
 				$this->settings->{ $key } = null;
 			}
 
-		// Determine appropriate output callback.
+
 		switch ( $field['type'] ) {
 			case 'checkbox':
 				$callback = 'do_checkbox';
@@ -205,7 +146,7 @@ class OpenID_Connect_Generic_Settings_Page {
 				break;
 		}
 
-			// Add the field.
+
 			add_settings_field(
 				$key,
 				$field['title'],
@@ -217,22 +158,10 @@ class OpenID_Connect_Generic_Settings_Page {
 		}
 	}
 
-	/**
-	 * Get the plugin settings fields definition.
-	 *
-	 * @return array
-	 */
+
 	private function get_settings_fields() {
 
-		/**
-		 * Simple settings fields have:
-		 *
-		 * - title
-		 * - description
-		 * - type ( checkbox | text | select )
-		 * - section - settings/option page section ( client_settings | authorization_settings )
-		 * - example (optional example will appear beneath description and be wrapped in <code>)
-		 */
+
 		$fields = array(
 			'login_type'        => array(
 				'title'       => __( 'Login Type', 'daggerhart-openid-connect-generic' ),
@@ -524,24 +453,18 @@ class OpenID_Connect_Generic_Settings_Page {
 	return apply_filters( 'openid-connect-generic-settings-fields', $fields );
 	}
 
-	/**
-	 * Sanitization callback for settings/option page.
-	 *
-	 * @param array $input The submitted settings values.
-	 *
-	 * @return array
-	 */
+
 	public function sanitize_settings( $input ) {
 		$options = array();
 
-		// Loop through settings fields to control what we're saving.
+
 		foreach ( $this->settings_fields as $key => $field ) {
-			// Special handling for role_mappings repeater.
+
 			if ( 'role_mappings' === $key ) {
 				$options[ $key ] = array();
 				if ( isset( $input[ $key ] ) && is_array( $input[ $key ] ) ) {
 					foreach ( $input[ $key ] as $mapping ) {
-						// Only save mappings that have both claim value and role set.
+
 						if ( ! empty( $mapping['claim_value'] ) && ! empty( $mapping['wp_role'] ) ) {
 							$options[ $key ][] = array(
 								'claim_value' => sanitize_text_field( $mapping['claim_value'] ),
@@ -572,11 +495,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		return $options;
 	}
 
-	/**
-	 * Output the options/settings page.
-	 *
-	 * @return void
-	 */
+
 	public function settings_page() {
 		wp_enqueue_style( 'daggerhart-openid-connect-generic-admin', plugin_dir_url( __DIR__ ) . 'css/styles-admin.css', array(), OpenID_Connect_Generic::VERSION, 'all' );
 		wp_enqueue_script( 'daggerhart-openid-connect-generic-admin', plugin_dir_url( __DIR__ ) . 'js/settings-admin.js', array( 'jquery' ), OpenID_Connect_Generic::VERSION, true );
@@ -597,7 +516,7 @@ class OpenID_Connect_Generic_Settings_Page {
 				do_settings_sections( $this->options_page_name );
 				submit_button();
 
-				// Simple debug to view settings array.
+
 				if ( isset( $_GET['debug'] ) ) {
 					var_dump( $this->settings->get_values() );
 				}
@@ -630,13 +549,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		<?php
 	}
 
-	/**
-	 * Output a standard text field.
-	 *
-	 * @param array $field The settings field definition array.
-	 *
-	 * @return void
-	 */
+
 	public function do_text_field( $field ) {
 		?>
 		<input type="<?php print esc_attr( $field['type'] ); ?>"
@@ -649,14 +562,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->do_field_description( $field );
 	}
 
-	/**
-	 * Output a checkbox for a boolean setting.
-	 *  - hidden field is default value so we don't have to check isset() on save.
-	 *
-	 * @param array $field The settings field definition array.
-	 *
-	 * @return void
-	 */
+
 	public function do_checkbox( $field ) {
 		$hidden_value = 0;
 		if ( ! empty( $field['disabled'] ) && boolval( $field['disabled'] ) === true ) {
@@ -674,13 +580,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->do_field_description( $field );
 	}
 
-	/**
-	 * Output a select control.
-	 *
-	 * @param array $field The settings field definition array.
-	 *
-	 * @return void
-	 */
+
 	public function do_select( $field ) {
 		$current_value = isset( $this->settings->{ $field['key'] } ) ? $this->settings->{ $field['key'] } : '';
 		?>
@@ -697,42 +597,36 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->do_field_description( $field );
 	}
 
-	/**
-	 * Output an image picker field with media library integration.
-	 *
-	 * @param array $field The settings field definition array.
-	 *
-	 * @return void
-	 */
+
 	public function do_image_picker( $field ) {
 		$image_id = isset( $this->settings->{ $field['key'] } ) ? intval( $this->settings->{ $field['key'] } ) : 0;
 		$image_url = '';
-		
+
 		if ( $image_id ) {
 			$image_url = wp_get_attachment_image_url( $image_id, 'thumbnail' );
 		}
 		?>
 		<div class="oidc-image-picker-wrapper">
-			<input type="hidden" 
+			<input type="hidden"
 				   id="<?php print esc_attr( $field['key'] ); ?>"
 				   name="<?php print esc_attr( $field['name'] ); ?>"
 				   value="<?php print esc_attr( $image_id ); ?>"
 				   class="oidc-image-id">
-			
+
 			<div class="oidc-image-preview" style="margin-bottom: 10px;">
 				<?php if ( $image_url ) : ?>
 					<img src="<?php echo esc_url( $image_url ); ?>" style="max-width: 150px; height: auto; display: block;">
 				<?php endif; ?>
 			</div>
-			
-			<button type="button" 
+
+			<button type="button"
 					class="button oidc-select-image"
 					data-field-id="<?php print esc_attr( $field['key'] ); ?>">
 				<?php esc_html_e( 'Select Image', 'daggerhart-openid-connect-generic' ); ?>
 			</button>
-			
+
 			<?php if ( $image_id ) : ?>
-				<button type="button" 
+				<button type="button"
 						class="button oidc-remove-image"
 						data-field-id="<?php print esc_attr( $field['key'] ); ?>">
 					<?php esc_html_e( 'Remove Image', 'daggerhart-openid-connect-generic' ); ?>
@@ -743,13 +637,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->do_field_description( $field );
 	}
 
-	/**
-	 * Output the field description, and example if present.
-	 *
-	 * @param array $field The settings field definition array.
-	 *
-	 * @return void
-	 */
+
 	public function do_field_description( $field ) {
 		?>
 		<p class="description">
@@ -762,11 +650,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		<?php
 	}
 
-	/**
-	 * Get all WordPress roles as an associative array.
-	 *
-	 * @return array
-	 */
+
 	private function get_wordpress_roles() {
 		$wp_roles = wp_roles();
 		$roles    = array();
@@ -778,13 +662,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		return $roles;
 	}
 
-	/**
-	 * Output the role mappings repeater field.
-	 *
-	 * @param array $field The settings field definition array.
-	 *
-	 * @return void
-	 */
+
 	public function do_role_mappings_repeater( $field ) {
 		$mappings  = isset( $this->settings->{ $field['key'] } ) ? $this->settings->{ $field['key'] } : array();
 		$wp_roles  = $this->get_wordpress_roles();
@@ -849,13 +727,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->do_field_description( $field );
 	}
 
-	/**
-	 * Output the claim-to-meta mappings repeater field.
-	 *
-	 * @param array $field The settings field definition array.
-	 *
-	 * @return void
-	 */
+
 	public function do_claim_meta_mappings_repeater( $field ) {
 		$mappings   = isset( $this->settings->{ $field['key'] } ) ? $this->settings->{ $field['key'] } : array();
 		$field_name = $field['name'];
@@ -910,56 +782,32 @@ class OpenID_Connect_Generic_Settings_Page {
 		$this->do_field_description( $field );
 	}
 
-	/**
-	 * Output the 'Client Settings' plugin setting section description.
-	 *
-	 * @return void
-	 */
+
 	public function client_settings_description() {
 		esc_html_e( 'Enter your OpenID Connect identity provider settings.', 'daggerhart-openid-connect-generic' );
 	}
 
-	/**
-	 * Output the 'WordPress User Settings' plugin setting section description.
-	 *
-	 * @return void
-	 */
+
 	public function user_settings_description() {
 		esc_html_e( 'Modify the interaction between OpenID Connect and WordPress users.', 'daggerhart-openid-connect-generic' );
 	}
 
-	/**
-	 * Output the 'Authorization Settings' plugin setting section description.
-	 *
-	 * @return void
-	 */
+
 	public function authorization_settings_description() {
 		esc_html_e( 'Control the authorization mechanics of the site.', 'daggerhart-openid-connect-generic' );
 	}
 
-	/**
-	 * Output the 'Log Settings' plugin setting section description.
-	 *
-	 * @return void
-	 */
+
 	public function log_settings_description() {
 		esc_html_e( 'Log information about login attempts through Airomi Connect.', 'daggerhart-openid-connect-generic' );
 	}
 
-	/**
-	 * Output the 'Claim Meta Mapping Settings' plugin setting section description.
-	 *
-	 * @return void
-	 */
+
 	public function claim_meta_mapping_settings_description() {
 		esc_html_e( 'Copy values from OIDC claims directly into WordPress user meta keys.', 'daggerhart-openid-connect-generic' );
 	}
 
-	/**
-	 * Output the 'Role Mapping Settings' plugin setting section description.
-	 *
-	 * @return void
-	 */
+
 	public function role_mapping_settings_description() {
 		esc_html_e( 'Configure role mapping from OIDC claims to WordPress roles.', 'daggerhart-openid-connect-generic' );
 	}
