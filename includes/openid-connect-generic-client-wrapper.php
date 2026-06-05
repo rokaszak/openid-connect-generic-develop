@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 class OpenID_Connect_Generic_Client_Wrapper
 {
@@ -968,9 +968,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 		if (!empty($this->settings->endpoint_userinfo) && isset($token_response['access_token'])) {
 			$user_claim = $client->get_user_claim($token_response);
 		} else {
-			$user_claim = $id_token_claim;
+			return new WP_Error('userinfo_required', __('Userinfo endpoint and access_token are required.', 'daggerhart-openid-connect-generic'));
 		}
-
 		if (is_wp_error($user_claim)) {
 			return $user_claim;
 		}
