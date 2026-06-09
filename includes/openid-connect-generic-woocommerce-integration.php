@@ -162,7 +162,11 @@ class OpenID_Connect_Generic_WooCommerce_Integration {
 		$text = apply_filters( 'openid-connect-generic-login-button-text', $button_text );
 		$text = esc_html( $text );
 
-		$href = $this->client_wrapper->get_authentication_url();
+		if ( class_exists( 'OpenID_Connect_Generic_Login_Initiator' ) ) {
+			$href = OpenID_Connect_Generic_Login_Initiator::get_url();
+		} else {
+			$href = $this->client_wrapper->get_authentication_url();
+		}
 		$href = esc_url( $href );
 
 

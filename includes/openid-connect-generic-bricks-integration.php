@@ -81,6 +81,11 @@ class OpenID_Connect_Generic_Bricks_Integration {
 
 
 	private function get_login_url() {
+
+		if ( class_exists( 'OpenID_Connect_Generic_Login_Initiator' ) ) {
+			return OpenID_Connect_Generic_Login_Initiator::get_url();
+		}
+
 		if ( function_exists( 'oidcg_get_authentication_url' ) ) {
 			return oidcg_get_authentication_url();
 		}
