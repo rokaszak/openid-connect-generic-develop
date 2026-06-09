@@ -667,7 +667,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 		wp_logout();
 
 
-		wp_safe_redirect(home_url());
+		$origin = isset($_REQUEST['redirect_to'])
+			? esc_url_raw(wp_unslash($_REQUEST['redirect_to']))
+			: (isset($_SERVER['HTTP_REFERER']) ? esc_url_raw(wp_unslash($_SERVER['HTTP_REFERER'])) : '');
+
+		wp_safe_redirect($this->get_post_logout_redirect($origin));
 		exit;
 	}
 
@@ -676,8 +680,11 @@ class OpenID_Connect_Generic_Client_Wrapper
 	{
 		check_ajax_referer('oidc-logout', 'nonce');
 
+		$origin = isset($_POST['origin']) ? esc_url_raw(wp_unslash($_POST['origin'])) : '';
+		$redirect_url = $this->get_post_logout_redirect($origin);
+
 		if (!is_user_logged_in()) {
-			wp_send_json_success(array('redirect_url' => home_url()));
+			wp_send_json_success(array('redirect_url' => $redirect_url));
 			return;
 		}
 
@@ -705,7 +712,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		wp_logout();
 
 
-		wp_send_json_success(array('redirect_url' => home_url()));
+		wp_send_json_success(array('redirect_url' => $redirect_url));
 	}
 
 
@@ -763,6 +770,24 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 
+	private function get_post_logout_redirect($origin)
+	{
+		$home = home_url();
+
+		if (empty($origin)) {
+			return $home;
+		}
+
+		$validated = wp_validate_redirect($origin, '');
+
+		if (empty($validated) || strpos($validated, admin_url()) === 0) {
+			return $home;
+		}
+
+		return $validated;
+	}
+
+
 	public function print_logout_script()
 	{
 		if (!is_user_logged_in() || empty($this->settings->endpoint_end_session)) {
@@ -789,9 +814,15 @@ class OpenID_Connect_Generic_Client_Wrapper
 				x.open('POST','<?php echo $ajax_url; ?>',true);
 				x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
 				x.timeout=15000;
-				function nav(){window.location.href='<?php echo $home_url; ?>';}
-				x.onload=x.onerror=x.ontimeout=nav;
-				x.send('action=oidc_logout&nonce=<?php echo $nonce; ?>');
+				function home(){window.location.href='<?php echo $home_url; ?>';}
+				function done(){
+					var dest='';
+					try{var r=JSON.parse(x.responseText);if(r&&r.success&&r.data&&r.data.redirect_url){dest=r.data.redirect_url;}}catch(e){}
+					window.location.href=dest||'<?php echo $home_url; ?>';
+				}
+				x.onload=done;
+				x.onerror=x.ontimeout=home;
+				x.send('action=oidc_logout&nonce=<?php echo $nonce; ?>&origin='+encodeURIComponent(window.location.href));
 			}
 			document.addEventListener('click',function(e){
 				var t=e.target;
