@@ -570,6 +570,68 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 
+	public function refresh_userinfo_for_current_user()
+	{
+		if (!is_user_logged_in()) {
+			return new WP_Error('not-logged-in', __('Not logged in.', 'daggerhart-openid-connect-generic'));
+		}
+
+		if (empty($this->settings->endpoint_userinfo)) {
+			return new WP_Error('no-userinfo-endpoint', __('No userinfo endpoint configured.', 'daggerhart-openid-connect-generic'));
+		}
+
+		$user_id = get_current_user_id();
+		$token = wp_get_session_token();
+		$token_response = !empty($token) ? $this->token_storage->get_token($token) : null;
+
+		if (empty($token_response) || empty($token_response['access_token'])) {
+			return new WP_Error('no-access-token', __('No access token available.', 'daggerhart-openid-connect-generic'));
+		}
+
+		$userinfo_result = $this->client->request_userinfo($token_response['access_token']);
+
+		if (is_wp_error($userinfo_result)) {
+			$this->logger->log(
+				array(
+					'type' => 'userinfo_manual_refresh_failed',
+					'user_id' => $user_id,
+					'error' => $userinfo_result->get_error_message(),
+				),
+				'refresh_userinfo_for_current_user',
+				null
+			);
+			return $userinfo_result;
+		}
+
+		$fresh_claim = json_decode($userinfo_result['body'], true);
+
+		if (!is_array($fresh_claim)) {
+			return new WP_Error('bad-userinfo', __('Invalid userinfo response.', 'daggerhart-openid-connect-generic'));
+		}
+
+		$user = get_user_by('id', $user_id);
+		if ($user) {
+			$this->assign_user_role_from_claim($user, $fresh_claim);
+			$this->sync_user_meta_from_claims($user, $fresh_claim);
+			update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $fresh_claim);
+		}
+
+		$token_response['last_userinfo_check'] = time();
+		$this->token_storage->save_token($token, $user_id, $token_response);
+
+		$this->logger->log(
+			array(
+				'type' => 'userinfo_manual_refresh',
+				'user_id' => $user_id,
+			),
+			'refresh_userinfo_for_current_user',
+			null
+		);
+
+		return true;
+	}
+
+
 	public function get_client()
 	{
 		return $this->client;

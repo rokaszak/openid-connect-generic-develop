@@ -36,6 +36,12 @@ class OpenID_Connect_Generic_Bricks_Integration {
 			'group' => 'OpenID Connect',
 		);
 
+		$tags[] = array(
+			'name'  => '{oidc_refresh_url}',
+			'label' => 'OIDC Userinfo Refresh URL',
+			'group' => 'OpenID Connect',
+		);
+
 		return $tags;
 	}
 
@@ -58,6 +64,10 @@ class OpenID_Connect_Generic_Bricks_Integration {
 			return $this->get_logout_url();
 		}
 
+		if ( $clean_tag === 'oidc_refresh_url' ) {
+			return $this->get_refresh_url();
+		}
+
 		return $tag;
 	}
 
@@ -74,6 +84,10 @@ class OpenID_Connect_Generic_Bricks_Integration {
 
 		if ( strpos( $content, '{oidc_logout_url}' ) !== false ) {
 			$content = str_replace( '{oidc_logout_url}', $this->get_logout_url(), $content );
+		}
+
+		if ( strpos( $content, '{oidc_refresh_url}' ) !== false ) {
+			$content = str_replace( '{oidc_refresh_url}', $this->get_refresh_url(), $content );
 		}
 
 		return $content;
@@ -99,5 +113,15 @@ class OpenID_Connect_Generic_Bricks_Integration {
 
 
 		return apply_filters( 'oidc_logout_url', $logout_url );
+	}
+
+
+	private function get_refresh_url() {
+
+		if ( class_exists( 'OpenID_Connect_Generic_Userinfo_Refresh' ) ) {
+			return OpenID_Connect_Generic_Userinfo_Refresh::get_url();
+		}
+
+		return '';
 	}
 }
