@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 class OpenID_Connect_Generic_Client_Wrapper
 {
