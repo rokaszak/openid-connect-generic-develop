@@ -97,6 +97,22 @@ class OpenID_Connect_Generic_Option_Logger {
 	}
 
 
+	public function redact_stored_logs() {
+		$logs = get_option( self::OPTION_NAME, array() );
+		if ( ! is_array( $logs ) || empty( $logs ) ) {
+			return;
+		}
+
+		foreach ( $logs as $index => $log ) {
+			if ( is_array( $log ) && isset( $log['data'] ) ) {
+				$logs[ $index ]['data'] = $this->redact( $log['data'] );
+			}
+		}
+
+		$this->save_logs( $logs );
+	}
+
+
 	private function redact( $data ) {
 		if ( ! is_array( $data ) ) {
 			return $data;

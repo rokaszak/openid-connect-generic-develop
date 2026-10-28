@@ -132,6 +132,20 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 	public function get_authentication_url($atts = array())
 	{
+		if (!class_exists('OpenID_Connect_Generic_Login_Initiator')) {
+			return $this->get_direct_authentication_url($atts);
+		}
+
+		$atts = is_array($atts) ? $atts : array();
+		$redirect_to = !empty($atts['redirect_to']) ? $atts['redirect_to'] : $this->get_redirect_to();
+		$redirect_to = !empty($redirect_to) ? wp_validate_redirect($redirect_to, home_url()) : home_url();
+
+		return add_query_arg('redirect_to', rawurlencode($redirect_to), OpenID_Connect_Generic_Login_Initiator::get_url());
+	}
+
+
+	public function get_direct_authentication_url($atts = array())
+	{
 
 		if (!empty($this->settings->discovery_failed) && !empty($this->settings->failure_redirect_url)) {
 			return $this->settings->failure_redirect_url;
@@ -962,6 +976,9 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$this->error_redirect($state);
 		}
 
+		$state_object = get_transient('openid-connect-generic-state--' . $state);
+		$client->consume_state($state);
+
 
 		$token_result = $client->request_authentication_token($code);
 
@@ -999,8 +1016,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 
 		$redirect_url = home_url();
-
-		$state_object = get_transient('openid-connect-generic-state--' . $state);
 
 		if (!empty($state_object) && !empty($state_object[$state]) && !empty($state_object[$state]['redirect_to'])) {
 			$redirect_url = $state_object[$state]['redirect_to'];

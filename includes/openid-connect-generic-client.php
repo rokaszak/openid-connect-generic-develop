@@ -8,6 +8,9 @@ class OpenID_Connect_Generic_Client {
 	const DEFAULT_RESPONSE_TIMEOUT = 10.0;
 
 
+	const STATE_COOKIE = 'openid-connect-generic-state';
+
+
 	private $client_id;
 
 
@@ -81,6 +84,10 @@ class OpenID_Connect_Generic_Client {
 
 		if ( ! $this->check_state( $request['state'] ) ) {
 			return new WP_Error( 'invalid-state', __( 'Invalid state.', 'daggerhart-openid-connect-generic' ), $request );
+		}
+
+		if ( ! $this->state_matches_cookie( $request['state'] ) ) {
+			return new WP_Error( 'state-mismatch', __( 'Your login session could not be verified. Please try logging in again.', 'daggerhart-openid-connect-generic' ) );
 		}
 
 		return $request;
@@ -409,15 +416,51 @@ public function get_token_response( $token_result ) {
 
 	public function new_state( $redirect_to ) {
 
-		$state = md5( mt_rand() . microtime( true ) );
+		$state = wp_generate_password( 32, false, false );
 		$state_value = array(
 			$state => array(
 				'redirect_to' => $redirect_to,
 			),
 		);
 		set_transient( 'openid-connect-generic-state--' . $state, $state_value, $this->state_time_limit );
+		$this->set_state_cookie( $state, time() + $this->state_time_limit );
 
 		return $state;
+	}
+
+
+	public function consume_state( $state ) {
+		delete_transient( 'openid-connect-generic-state--' . $state );
+		$this->set_state_cookie( '', time() - YEAR_IN_SECONDS );
+	}
+
+
+	private function state_matches_cookie( $state ) {
+		if ( ! is_string( $state ) || '' === $state || empty( $_COOKIE[ self::STATE_COOKIE ] ) || ! is_string( $_COOKIE[ self::STATE_COOKIE ] ) ) {
+			return false;
+		}
+
+		return hash_equals( wp_unslash( $_COOKIE[ self::STATE_COOKIE ] ), $state );
+	}
+
+
+	private function set_state_cookie( $value, $expires ) {
+		if ( headers_sent() ) {
+			return;
+		}
+
+		setcookie(
+			self::STATE_COOKIE,
+			$value,
+			array(
+				'expires'  => $expires,
+				'path'     => '/',
+				'domain'   => COOKIE_DOMAIN ? COOKIE_DOMAIN : '',
+				'secure'   => is_ssl(),
+				'httponly' => true,
+				'samesite' => 'Lax',
+			)
+		);
 	}
 
 
