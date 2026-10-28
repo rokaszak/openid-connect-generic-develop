@@ -6,6 +6,9 @@ class OpenID_Connect_Generic_Option_Logger {
 	const OPTION_NAME = 'openid-connect-generic-logs';
 
 
+	const REDACTED_KEYS = array( 'access_token', 'refresh_token', 'id_token', 'client_secret', 'authorization' );
+
+
 	private $default_message_type = 'none';
 
 
@@ -86,11 +89,30 @@ class OpenID_Connect_Generic_Option_Logger {
 			'time'            => ! empty( $time ) ? $time : time(),
 			'user_ID'         => ! is_null( $user_ID ) ? $user_ID : get_current_user_id(),
 			'uri'             => $request_uri,
-			'data'            => $data,
+			'data'            => $this->redact( $data ),
 			'processing_time' => $processing_time,
 		);
 
 		return $message;
+	}
+
+
+	private function redact( $data ) {
+		if ( ! is_array( $data ) ) {
+			return $data;
+		}
+
+		foreach ( $data as $key => $value ) {
+			if ( is_string( $key ) && in_array( strtolower( $key ), self::REDACTED_KEYS, true ) ) {
+				if ( ! empty( $value ) ) {
+					$data[ $key ] = '[REDACTED]';
+				}
+			} elseif ( is_array( $value ) ) {
+				$data[ $key ] = $this->redact( $value );
+			}
+		}
+
+		return $data;
 	}
 
 

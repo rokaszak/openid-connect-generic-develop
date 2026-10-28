@@ -68,6 +68,11 @@ class OpenID_Connect_Generic_Magic_Link_Rest {
 			return new WP_Error( 'bad_token_response', 'token_response is required and must be an object.', array( 'status' => 422 ) );
 		}
 
+		if ( ! $this->token_has_audience( $token_response['access_token'] ?? null ) || ! $this->token_has_audience( $token_response['id_token'] ?? null ) ) {
+			$this->logger->log( 'magic_link_request_rejected: invalid_audience', 'magic_link' );
+			return new WP_Error( 'invalid_audience', 'Token audience is not allowed.', array( 'status' => 422 ) );
+		}
+
 		$resolved = $this->client_wrapper->resolve_user_from_token_response(
 			$token_response,
 			array( 'source' => 'magic_link' )
@@ -118,5 +123,26 @@ class OpenID_Connect_Generic_Magic_Link_Rest {
 			),
 			200
 		);
+	}
+
+	private function token_has_audience( $token ) {
+		$client_id = (string) $this->settings->client_id;
+		if ( '' === $client_id || ! is_string( $token ) || '' === $token ) {
+			return false;
+		}
+
+		$parts = explode( '.', $token );
+		if ( count( $parts ) !== 3 ) {
+			return false;
+		}
+
+		$claims = json_decode( base64_decode( strtr( $parts[1], '-_', '+/' ) ), true );
+		if ( ! is_array( $claims ) || empty( $claims['aud'] ) ) {
+			return false;
+		}
+
+		$audiences = is_array( $claims['aud'] ) ? $claims['aud'] : array( $claims['aud'] );
+
+		return in_array( $client_id, array_map( 'strval', $audiences ), true );
 	}
 }

@@ -194,21 +194,12 @@ class OpenID_Connect_Generic_Login_Form {
 
 	public function block_password_authentication( $user, $username, $password ) {
 
-		if ( defined( 'REST_REQUEST' ) || defined( 'XMLRPC_REQUEST' ) ) {
-			return $user;
-		}
-
-
-		if ( is_a( $user, 'WP_User' ) ) {
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
 			return $user;
 		}
 
 
 		if ( ! empty( $username ) && ! empty( $password ) ) {
-
-			remove_filter( 'authenticate', 'wp_authenticate_username_password', 20 );
-			remove_filter( 'authenticate', 'wp_authenticate_email_password', 20 );
-
 			return new WP_Error(
 				'oidc_only_login',
 				__( '<strong>Error:</strong> Password authentication is disabled. Please use Airomi Connect to login.', 'daggerhart-openid-connect-generic' ),

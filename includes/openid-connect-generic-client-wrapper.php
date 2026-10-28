@@ -1008,7 +1008,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 
 		if (!empty($_COOKIE[self::COOKIE_REDIRECT_KEY])) {
-			$redirect_url = esc_url_raw(wp_unslash($_COOKIE[self::COOKIE_REDIRECT_KEY]));
+			$redirect_url = wp_validate_redirect(esc_url_raw(wp_unslash($_COOKIE[self::COOKIE_REDIRECT_KEY])), $redirect_url);
 		}
 
 
@@ -1570,6 +1570,10 @@ class OpenID_Connect_Generic_Client_Wrapper
 			} else {
 				$uid = email_exists($email);
 			}
+			if (!empty($uid) && !$this->is_email_verified($user_claim)) {
+				$this->logger->log("Link refused for user {$uid}: email not verified for sub '{$subject_identity}'.", __METHOD__);
+				return new WP_Error('email-not-verified', __('Please verify your email address before logging in.', 'daggerhart-openid-connect-generic'));
+			}
 			if (!empty($uid)) {
 
 				$existing_sub = get_user_meta($uid, 'openid-connect-generic-subject-identity', true);
@@ -1649,6 +1653,12 @@ class OpenID_Connect_Generic_Client_Wrapper
 		do_action('openid-connect-generic-user-create', $user, $user_claim);
 
 		return $user;
+	}
+
+
+	private function is_email_verified($user_claim)
+	{
+		return is_array($user_claim) && isset($user_claim['email_verified']) && true === filter_var($user_claim['email_verified'], FILTER_VALIDATE_BOOLEAN);
 	}
 
 
