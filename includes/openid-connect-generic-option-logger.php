@@ -6,7 +6,7 @@ class OpenID_Connect_Generic_Option_Logger {
 	const OPTION_NAME = 'openid-connect-generic-logs';
 
 
-	const REDACTED_KEYS = array( 'access_token', 'refresh_token', 'id_token', 'client_secret', 'authorization' );
+	const REDACTED_KEYS = array( 'access_token', 'refresh_token', 'id_token', 'client_secret', 'authorization', 'code_verifier', 'session_transfer_token' );
 
 
 	private $default_message_type = 'none';

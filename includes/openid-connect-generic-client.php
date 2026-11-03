@@ -103,7 +103,7 @@ class OpenID_Connect_Generic_Client {
 	}
 
 
-	public function request_authentication_token( $code ) {
+	public function request_authentication_token( $code, $code_verifier ) {
 
 
 		$parsed_url = parse_url( $this->endpoint_token );
@@ -117,6 +117,8 @@ class OpenID_Connect_Generic_Client {
 				'redirect_uri'  => $this->redirect_uri,
 				'grant_type'    => 'authorization_code',
 				'scope'         => $this->scope,
+				'code_verifier' => $code_verifier,
+				'auth_version'  => '2',
 			),
 			'headers' => array( 'Host' => $host ),
 		);
@@ -150,15 +152,20 @@ class OpenID_Connect_Generic_Client {
 	}
 
 
-	public function request_new_tokens( $refresh_token ) {
+	public function request_new_tokens( $refresh_token, $scope = '' ) {
 		$request = array(
 			'body' => array(
 				'refresh_token' => $refresh_token,
 				'client_id'     => $this->client_id,
 				'client_secret' => $this->client_secret,
 				'grant_type'    => 'refresh_token',
+				'auth_version'  => '2',
 			),
 		);
+
+		if ( ! empty( $scope ) ) {
+			$request['body']['scope'] = $scope;
+		}
 
 
 		$request = apply_filters( 'openid-connect-generic-alter-request', $request, 'refresh-token' );
@@ -191,6 +198,32 @@ class OpenID_Connect_Generic_Client {
 		}
 
 		return $request_body;
+	}
+
+
+	public function is_new_system_token( $jwt ) {
+		if ( ! is_string( $jwt ) || '' === $jwt ) {
+			return false;
+		}
+
+		$parts = explode( '.', $jwt );
+		if ( count( $parts ) !== 3 ) {
+			return false;
+		}
+
+		$header = json_decode( base64_decode( strtr( $parts[0], '-_', '+/' ) ), true );
+
+		return is_array( $header ) && isset( $header['alg'] ) && 'RS256' === $header['alg'];
+	}
+
+
+	public function new_pkce_verifier() {
+		return bin2hex( random_bytes( 32 ) );
+	}
+
+
+	public function pkce_challenge( $verifier ) {
+		return rtrim( strtr( base64_encode( hash( 'sha256', $verifier, true ) ), '+/', '-_' ), '=' );
 	}
 
 public function get_token_response( $token_result ) {
@@ -414,12 +447,15 @@ public function get_token_response( $token_result ) {
 	}
 
 
-	public function new_state( $redirect_to ) {
+	public function new_state( $redirect_to, $extra = array() ) {
 
 		$state = wp_generate_password( 32, false, false );
 		$state_value = array(
-			$state => array(
-				'redirect_to' => $redirect_to,
+			$state => array_merge(
+				$extra,
+				array(
+					'redirect_to' => $redirect_to,
+				)
 			),
 		);
 		set_transient( 'openid-connect-generic-state--' . $state, $state_value, $this->state_time_limit );

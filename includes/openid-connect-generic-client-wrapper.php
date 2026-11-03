@@ -42,7 +42,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		add_action('wp_logout', array($client_wrapper, 'cleanup_token_on_logout'), 10);
 
 
-		if ($settings->endpoint_end_session) {
+		if ($settings->endpoint_revocation || $settings->endpoint_end_session) {
 			add_action('login_init', array($client_wrapper, 'intercept_logout_redirect'), 1);
 			add_action('wp_ajax_oidc_logout', array($client_wrapper, 'ajax_logout'));
 			add_action('wp_footer', array($client_wrapper, 'print_logout_script'));
@@ -144,7 +144,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 	}
 
 
-	public function get_direct_authentication_url($atts = array())
+	public function get_direct_authentication_url($atts = array(), $session_transfer_token = '')
 	{
 
 		if (!empty($this->settings->discovery_failed) && !empty($this->settings->failure_redirect_url)) {
@@ -174,9 +174,15 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$separator = '&';
 		}
 
-		$url_format = '%1$s%2$sresponse_type=code&scope=%3$s&client_id=%4$s&state=%5$s&redirect_uri=%6$s';
+		$code_verifier = $this->client->new_pkce_verifier();
+		$nonce = wp_generate_password(32, false, false);
+
+		$url_format = '%1$s%2$sresponse_type=code&scope=%3$s&client_id=%4$s&state=%5$s&redirect_uri=%6$s&code_challenge=%8$s&code_challenge_method=S256&nonce=%9$s';
 		if (!empty($atts['acr_values'])) {
 			$url_format .= '&acr_values=%7$s';
+		}
+		if (!empty($session_transfer_token)) {
+			$url_format .= '&session_transfer_token=%10$s';
 		}
 
 		$url = sprintf(
@@ -185,9 +191,12 @@ class OpenID_Connect_Generic_Client_Wrapper
 			$separator,
 			rawurlencode($atts['scope']),
 			rawurlencode($atts['client_id']),
-			$this->client->new_state($atts['redirect_to']),
+			$this->client->new_state($atts['redirect_to'], array('code_verifier' => $code_verifier, 'nonce' => $nonce)),
 			rawurlencode($atts['redirect_uri']),
-			rawurlencode($atts['acr_values'])
+			rawurlencode($atts['acr_values']),
+			$this->client->pkce_challenge($code_verifier),
+			rawurlencode($nonce),
+			rawurlencode($session_transfer_token)
 		);
 
 		$url = apply_filters('openid-connect-generic-auth-url', $url);
@@ -450,7 +459,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 		}
 
 		try {
-			$token_result = $this->client->request_new_tokens($refresh_token);
+			$conversion_scope = $this->client->is_new_system_token($current_token_data['access_token'] ?? '') ? '' : $this->settings->scope;
+			$token_result = $this->client->request_new_tokens($refresh_token, $conversion_scope);
 
 			if (is_wp_error($token_result)) {
 				$error_code = $token_result->get_error_code();
@@ -737,7 +747,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 
 
-		$this->notify_idp_logout($id_token);
+		$this->end_idp_session();
 
 
 		wp_logout();
@@ -782,13 +792,88 @@ class OpenID_Connect_Generic_Client_Wrapper
 		);
 
 
-		$this->notify_idp_logout($id_token);
+		$this->end_idp_session();
 
 
 		wp_logout();
 
 
 		wp_send_json_success(array('redirect_url' => $redirect_url));
+	}
+
+
+	private function end_idp_session()
+	{
+		$token_data = $this->get_token_response_from_storage(get_current_user_id());
+
+		if (!empty($token_data['access_token']) && $this->client->is_new_system_token($token_data['access_token'])) {
+			$this->revoke_idp_session($token_data);
+			return;
+		}
+
+		$this->notify_idp_logout($token_data['id_token'] ?? '');
+	}
+
+
+	private function revoke_idp_session($token_data)
+	{
+		$revocation_url = $this->settings->endpoint_revocation;
+
+		if (empty($revocation_url)) {
+			$this->logger->log(
+				array(
+					'type' => 'logout_idp_skipped',
+					'reason' => 'no revocation endpoint configured',
+				),
+				'logout',
+				null
+			);
+			return;
+		}
+
+		$token = $token_data['refresh_token'] ?? '';
+		$token_type_hint = 'refresh_token';
+		if (empty($token)) {
+			$token = $token_data['access_token'];
+			$token_type_hint = 'access_token';
+		}
+
+		$response = wp_remote_post(
+			$revocation_url,
+			array(
+				'timeout' => 5,
+				'body' => array(
+					'token' => $token,
+					'token_type_hint' => $token_type_hint,
+					'client_id' => $this->settings->client_id,
+					'client_secret' => $this->settings->client_secret,
+				),
+				'sslverify' => !$this->settings->no_sslverify,
+			)
+		);
+
+		if (is_wp_error($response)) {
+			$this->logger->log(
+				array(
+					'type' => 'logout_idp_revoke_error',
+					'error' => $response->get_error_message(),
+				),
+				'logout',
+				null
+			);
+			return;
+		}
+
+		$this->logger->log(
+			array(
+				'type' => 'logout_idp_revoked',
+				'token_type_hint' => $token_type_hint,
+				'response_code' => wp_remote_retrieve_response_code($response),
+				'response_body' => wp_remote_retrieve_body($response),
+			),
+			'logout',
+			null
+		);
 	}
 
 
@@ -866,7 +951,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 	public function print_logout_script()
 	{
-		if (!is_user_logged_in() || empty($this->settings->endpoint_end_session)) {
+		if (!is_user_logged_in() || (empty($this->settings->endpoint_revocation) && empty($this->settings->endpoint_end_session))) {
 			return;
 		}
 
@@ -979,8 +1064,13 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$state_object = get_transient('openid-connect-generic-state--' . $state);
 		$client->consume_state($state);
 
+		$state_data = (is_array($state_object) && isset($state_object[$state]) && is_array($state_object[$state])) ? $state_object[$state] : array();
+		if (empty($state_data['code_verifier']) || empty($state_data['nonce'])) {
+			$this->error_redirect(new WP_Error('missing-pkce', __('Your login session could not be verified. Please try logging in again.', 'daggerhart-openid-connect-generic')));
+		}
 
-		$token_result = $client->request_authentication_token($code);
+
+		$token_result = $client->request_authentication_token($code, $state_data['code_verifier']);
 
 		if (is_wp_error($token_result)) {
 			$this->error_redirect($token_result);
@@ -989,7 +1079,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		$token_response = $client->get_token_response($token_result);
 
-		$resolved = $this->resolve_user_from_token_response($token_response, array('source' => 'callback'));
+		$resolved = $this->resolve_user_from_token_response($token_response, array('source' => 'callback', 'nonce' => $state_data['nonce']));
 
 		if (is_wp_error($resolved)) {
 			$this->error_redirect($resolved);
@@ -1070,6 +1160,14 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		if (is_wp_error($valid)) {
 			return $valid;
+		}
+
+
+		if (array_key_exists('nonce', $context)) {
+			$received_nonce = (isset($id_token_claim['nonce']) && is_string($id_token_claim['nonce'])) ? $id_token_claim['nonce'] : '';
+			if (!is_string($context['nonce']) || '' === $context['nonce'] || !hash_equals($context['nonce'], $received_nonce)) {
+				return new WP_Error('invalid-nonce', __('Invalid nonce.', 'daggerhart-openid-connect-generic'));
+			}
 		}
 
 
@@ -1260,7 +1358,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		$session_lifetime = apply_filters(
 			'openid-connect-generic-session-lifetime',
-			7 * DAY_IN_SECONDS
+			14 * DAY_IN_SECONDS
 		);
 
 		return time() + $session_lifetime;
@@ -1707,27 +1805,21 @@ class OpenID_Connect_Generic_Client_Wrapper
 		}
 
 
-		if (empty($role_claim_key) || !isset($user_claim[$role_claim_key])) {
-
-			$user->set_role($default_role);
-			return;
+		$claim_values = array();
+		foreach (array_filter(array_map('trim', explode(',', (string) $role_claim_key))) as $claim_key) {
+			if (!isset($user_claim[$claim_key])) {
+				continue;
+			}
+			$claim_value = $user_claim[$claim_key];
+			foreach ((is_array($claim_value) ? $claim_value : array($claim_value)) as $value) {
+				if (is_scalar($value) && '' !== (string) $value) {
+					$claim_values[] = (string) $value;
+				}
+			}
 		}
 
 
-		$claim_value = $user_claim[$role_claim_key];
-
-
-		if (!is_array($claim_value)) {
-			$claim_values = array($claim_value);
-		} else {
-			$claim_values = $claim_value;
-		}
-
-
-		$first_claim_value = !empty($claim_values) ? $claim_values[0] : '';
-
-
-		if (empty($first_claim_value)) {
+		if (empty($claim_values)) {
 			$user->set_role($default_role);
 			return;
 		}
@@ -1738,7 +1830,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 			foreach ($role_mappings as $mapping) {
 				if (isset($mapping['claim_value']) && isset($mapping['wp_role'])) {
 
-					if ($mapping['claim_value'] === $first_claim_value) {
+					if (in_array($mapping['claim_value'], $claim_values, true)) {
 						$matched_role = $mapping['wp_role'];
 						break;
 					}
@@ -1766,13 +1858,22 @@ class OpenID_Connect_Generic_Client_Wrapper
 			return;
 		}
 
+		$claim_keys_by_meta_key = array();
 		foreach ($mappings as $mapping) {
 			if (empty($mapping['claim_key']) || empty($mapping['meta_key'])) {
 				continue;
 			}
+			$claim_keys_by_meta_key[$mapping['meta_key']][] = $mapping['claim_key'];
+		}
 
-			$claim_key = $mapping['claim_key'];
-			$meta_key  = $mapping['meta_key'];
+		foreach ($claim_keys_by_meta_key as $meta_key => $claim_keys) {
+			$claim_key = $claim_keys[0];
+			foreach ($claim_keys as $candidate) {
+				if (array_key_exists($candidate, $user_claim)) {
+					$claim_key = $candidate;
+					break;
+				}
+			}
 
 			if (array_key_exists($claim_key, $user_claim)) {
 				$value = $user_claim[$claim_key];
@@ -1799,7 +1900,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 						'type'      => 'claim_meta_sync_cleared',
 						'user_id'   => $user->ID,
 						'username'  => $user->user_login,
-						'claim_key' => $claim_key,
+						'claim_key' => implode(', ', $claim_keys),
 						'meta_key'  => $meta_key,
 						'reason'    => 'Claim absent from userinfo response',
 					),
