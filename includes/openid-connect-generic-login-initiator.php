@@ -53,16 +53,6 @@ class OpenID_Connect_Generic_Login_Initiator {
 
 		$auth_url = $this->client_wrapper->get_direct_authentication_url( $atts, $session_transfer_token );
 
-		$this->logger->log(
-			array(
-				'type'                 => 'login_initiated_on_demand',
-				'redirect_to'          => $redirect_to,
-				'session_transfer'     => '' !== $session_transfer_token,
-			),
-			'login_initiator',
-			null
-		);
-
 		wp_redirect( $auth_url );
 		exit;
 	}

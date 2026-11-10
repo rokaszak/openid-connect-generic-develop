@@ -35,7 +35,7 @@ class OpenID_Connect_Generic_Option_Logger {
 
 
 	public function log( $data, $type = null, $processing_time = null, $time = null, $user_ID = null, $request_uri = null ) {
-		if ( boolval( $this->logging_enabled ) ) {
+		if ( boolval( $this->logging_enabled ) && $this->anonymous_entry_allowed() ) {
 			$logs = $this->get_logs();
 			$logs[] = $this->make_message( $data, $type, $processing_time, $time, $user_ID, $request_uri );
 			$logs = $this->upkeep_logs( $logs );
@@ -62,6 +62,19 @@ class OpenID_Connect_Generic_Option_Logger {
 	}
 
 
+	private function anonymous_entry_allowed() {
+		if ( get_current_user_id() ) {
+			return true;
+		}
+		$used = (int) get_transient( 'oidc_anonymous_log_count' );
+		if ( $used >= 30 ) {
+			return false;
+		}
+		set_transient( 'oidc_anonymous_log_count', $used + 1, 10 * MINUTE_IN_SECONDS );
+		return true;
+	}
+
+
 	private function make_message( $data, $type, $processing_time, $time, $user_ID, $request_uri ) {
 
 		if ( empty( $type ) ) {
@@ -80,7 +93,7 @@ class OpenID_Connect_Generic_Option_Logger {
 
 		if ( empty( $request_uri ) ) {
 			$request_uri = ( ! empty( $_SERVER['REQUEST_URI'] ) ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : 'Unknown';
-			$request_uri = preg_replace( '/code=([^&]+)/i', 'code=', $request_uri );
+			$request_uri = preg_replace( '/(code|state|session_transfer_token|magic-link)=[^&]*/i', '$1=', $request_uri );
 		}
 
 

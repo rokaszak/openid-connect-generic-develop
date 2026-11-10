@@ -134,16 +134,6 @@ class OpenID_Connect_Generic_Client {
 		$response   = $this->http_request( 'POST', $this->endpoint_token, $request );
 		$processing_time = microtime( true ) - $start_time;
 
-		$this->logger->log(
-			array(
-				'type'         => 'authentication_request',
-				'endpoint'     => $this->endpoint_token,
-				'request_body' => $this->sanitize_request_body_for_logging( $request['body'] ?? array() ),
-			),
-			'request_authentication_token_debug',
-			$processing_time
-		);
-
 		if ( is_wp_error( $response ) ) {
 			$response->add( 'request_authentication_token', __( 'Request for authentication token failed.', 'daggerhart-openid-connect-generic' ) );
 		}
@@ -173,16 +163,6 @@ class OpenID_Connect_Generic_Client {
 		$start_time = microtime( true );
 		$response   = $this->http_request( 'POST', $this->endpoint_token, $request );
 		$processing_time = microtime( true ) - $start_time;
-
-		$this->logger->log(
-			array(
-				'type'         => 'request_new_tokens_details',
-				'endpoint'     => $this->endpoint_token,
-				'request_body' => $this->sanitize_request_body_for_logging( $request['body'] ?? array() ),
-			),
-			'request_new_tokens_debug',
-			$processing_time
-		);
 
 		if ( is_wp_error( $response ) ) {
 			$response->add( 'refresh_token', __( 'Refresh token failed.', 'daggerhart-openid-connect-generic' ) );
@@ -304,16 +284,6 @@ public function get_token_response( $token_result ) {
 	}
 
 
-	$this->logger->log(
-		array(
-			'type'                => 'token_response_success',
-			'http_code'           => $response_code,
-			'full_response'       => $token_response,
-		),
-		'get_token_response_success',
-		null
-	);
-
 	return $token_response;
 }
 
@@ -388,17 +358,6 @@ public function get_token_response( $token_result ) {
 		$processing_time = microtime( true ) - $start_time;
 
 
-		$this->logger->log(
-			array(
-				'type'         => 'userinfo_request',
-				'endpoint'     => $this->endpoint_userinfo,
-				'access_token' => $access_token,
-				'headers'      => $request['headers'],
-			),
-			'request_userinfo_debug',
-			$processing_time
-		);
-
 		if ( is_wp_error( $response ) ) {
 			$response->add( 'request_userinfo', __( 'Request for userinfo failed.', 'daggerhart-openid-connect-generic' ) );
 			return $response;
@@ -419,8 +378,6 @@ public function get_token_response( $token_result ) {
 					'type'              => 'userinfo_error',
 					'http_code'         => $response_code,
 					'http_message'      => wp_remote_retrieve_response_message( $response ),
-					'response_body'     => $response['body'] ?? '',
-					'response_headers'  => wp_remote_retrieve_headers( $response ),
 				),
 				'request_userinfo_error',
 				null
@@ -429,19 +386,6 @@ public function get_token_response( $token_result ) {
 			return new WP_Error( 'userinfo-http-error-' . $response_code, $error_message, $response );
 		}
 
-
-		$userinfo_data = json_decode( $response['body'], true );
-		$this->logger->log(
-			array(
-				'type'           => 'userinfo_response_success',
-				'http_code'      => $response_code,
-				'full_response'  => $userinfo_data,
-				'response_body'  => $response['body'],
-				'response_headers' => wp_remote_retrieve_headers( $response ),
-			),
-			'request_userinfo_success',
-			null
-		);
 
 		return $response;
 	}

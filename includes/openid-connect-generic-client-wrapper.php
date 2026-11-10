@@ -390,7 +390,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 					if ($user) {
 						$this->assign_user_role_from_claim($user, $fresh_claim);
 						$this->sync_user_meta_from_claims($user, $fresh_claim);
-						update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $fresh_claim);
 					}
 				}
 			}
@@ -637,20 +636,10 @@ class OpenID_Connect_Generic_Client_Wrapper
 		if ($user) {
 			$this->assign_user_role_from_claim($user, $fresh_claim);
 			$this->sync_user_meta_from_claims($user, $fresh_claim);
-			update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $fresh_claim);
 		}
 
 		$token_response['last_userinfo_check'] = time();
 		$this->token_storage->save_token($token, $user_id, $token_response);
-
-		$this->logger->log(
-			array(
-				'type' => 'userinfo_manual_refresh',
-				'user_id' => $user_id,
-			),
-			'refresh_userinfo_for_current_user',
-			null
-		);
 
 		return true;
 	}
@@ -706,11 +695,7 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$this->logger->log($error, null, null);
 
 
-		wp_redirect(
-			wp_login_url() .
-			'?login-error=' . $error->get_error_code() .
-			'&message=' . urlencode($error->get_error_message())
-		);
+		wp_redirect(add_query_arg('login-error', rawurlencode((string) $error->get_error_code()), wp_login_url()));
 		exit;
 	}
 
@@ -1102,7 +1087,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 		$start_time = microtime(true);
 		do_action('openid-connect-generic-user-logged-in', $user);
 		$end_time = microtime(true);
-		$this->logger->log('openid-connect-generic-user-logged-in', 'do_action', $end_time - $start_time);
 
 
 		$redirect_url = home_url();
@@ -1277,8 +1261,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 
 		$this->save_token_to_db(wp_get_session_token(), $user->ID, $token_response);
-		update_user_meta($user->ID, 'openid-connect-generic-last-id-token-claim', $id_token_claim);
-		update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $user_claim);
 
 		return $user_claim;
 	}
@@ -1289,8 +1271,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		$token_response['time'] = time();
 
-		update_user_meta($user->ID, 'openid-connect-generic-last-id-token-claim', $id_token_claim);
-		update_user_meta($user->ID, 'openid-connect-generic-last-user-claim', $user_claim);
 
 
 		$this->assign_user_role_from_claim($user, $user_claim);
@@ -1308,22 +1288,6 @@ class OpenID_Connect_Generic_Client_Wrapper
 
 		$expiration = $this->get_wp_session_expiration_from_oidc($token_response);
 
-
-		$access_token_expires_in = !empty($token_response['expires_in']) ? intval($token_response['expires_in']) : 0;
-		$access_token_expires_at = $access_token_expires_in > 0 ? wp_date('Y-m-d H:i:s', time() + $access_token_expires_in) : 'N/A';
-		$session_expires_at = wp_date('Y-m-d H:i:s', $expiration);
-		$this->logger->log(
-			sprintf(
-				'User %s (%d) logged in. [Access token expires: %s (%d sec) | WP session expires: %s]',
-				$user->user_login,
-				$user->ID,
-				$access_token_expires_at,
-				$access_token_expires_in,
-				$session_expires_at
-			),
-			'login_user',
-			null
-		);
 
 		$manager = WP_Session_Tokens::get_instance($user->ID);
 		$token = $manager->create($expiration);
@@ -1878,35 +1842,8 @@ class OpenID_Connect_Generic_Client_Wrapper
 			if (array_key_exists($claim_key, $user_claim)) {
 				$value = $user_claim[$claim_key];
 				update_user_meta($user->ID, $meta_key, $value);
-
-				$this->logger->log(
-					array(
-						'type'      => 'claim_meta_sync_set',
-						'user_id'   => $user->ID,
-						'username'  => $user->user_login,
-						'claim_key' => $claim_key,
-						'meta_key'  => $meta_key,
-						'is_array'  => is_array($value),
-						'count'     => is_array($value) ? count($value) : 1,
-					),
-					'claim_meta_sync_set',
-					$user->ID
-				);
 			} else {
 				delete_user_meta($user->ID, $meta_key);
-
-				$this->logger->log(
-					array(
-						'type'      => 'claim_meta_sync_cleared',
-						'user_id'   => $user->ID,
-						'username'  => $user->user_login,
-						'claim_key' => implode(', ', $claim_keys),
-						'meta_key'  => $meta_key,
-						'reason'    => 'Claim absent from userinfo response',
-					),
-					'claim_meta_sync_cleared',
-					$user->ID
-				);
 			}
 		}
 	}

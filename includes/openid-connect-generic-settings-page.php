@@ -184,8 +184,8 @@ class OpenID_Connect_Generic_Settings_Page {
 			),
 			'client_secret'     => array(
 				'title'       => __( 'Client Secret Key', 'daggerhart-openid-connect-generic' ),
-				'description' => __( 'Arbitrary secret key the server expects from this client. Can be anything, but should be very unique.', 'daggerhart-openid-connect-generic' ),
-				'type'        => 'text',
+				'description' => __( 'The client secret from the SSO admin. It is never shown; leave the field empty to keep the saved secret.', 'daggerhart-openid-connect-generic' ),
+				'type'        => 'password',
 				'disabled'    => defined( 'OIDC_CLIENT_SECRET' ),
 				'section'     => 'client_settings',
 			),
@@ -485,6 +485,8 @@ class OpenID_Connect_Generic_Settings_Page {
 						}
 					}
 				}
+			} elseif ( 'client_secret' === $key && ( ! isset( $input[ $key ] ) || '' === trim( $input[ $key ] ) ) ) {
+				$options[ $key ] = $this->settings->client_secret;
 			} elseif ( isset( $input[ $key ] ) ) {
 				$options[ $key ] = sanitize_text_field( trim( $input[ $key ] ) );
 			} else {
@@ -515,11 +517,6 @@ class OpenID_Connect_Generic_Settings_Page {
 				settings_fields( $this->settings_field_group );
 				do_settings_sections( $this->options_page_name );
 				submit_button();
-
-
-				if ( isset( $_GET['debug'] ) ) {
-					var_dump( $this->settings->get_values() );
-				}
 				?>
 			</form>
 
@@ -557,7 +554,8 @@ class OpenID_Connect_Generic_Settings_Page {
 			class="large-text<?php echo ( ! empty( $field['disabled'] ) && boolval( $field['disabled'] ) === true ) ? ' disabled' : ''; ?>"
 			name="<?php print esc_attr( $field['name'] ); ?>"
 			<?php echo ( ! empty( $field['disabled'] ) && boolval( $field['disabled'] ) === true ) ? ' disabled' : ''; ?>
-			value="<?php print esc_attr( $this->settings->{ $field['key'] } ); ?>">
+			<?php echo 'password' === $field['type'] ? 'autocomplete="new-password"' : ''; ?>
+			value="<?php print 'password' === $field['type'] ? '' : esc_attr( $this->settings->{ $field['key'] } ); ?>">
 		<?php
 		$this->do_field_description( $field );
 	}
