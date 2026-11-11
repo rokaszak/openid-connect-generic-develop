@@ -38,16 +38,7 @@ class OpenID_Connect_Generic_Userinfo_Refresh {
 		$origin = $this->resolve_origin();
 
 		if ( is_user_logged_in() ) {
-			$result = $this->client_wrapper->refresh_userinfo_for_current_user();
-
-			$this->logger->log(
-				array(
-					'type'    => 'userinfo_refresh_requested',
-					'success' => ! is_wp_error( $result ),
-				),
-				'userinfo_refresh',
-				null
-			);
+			$this->client_wrapper->refresh_userinfo_for_current_user();
 		}
 
 		wp_safe_redirect( ! empty( $origin ) ? $origin : home_url() );

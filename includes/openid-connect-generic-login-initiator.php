@@ -43,16 +43,15 @@ class OpenID_Connect_Generic_Login_Initiator {
 			$atts['redirect_to'] = $redirect_to;
 		}
 
-		$auth_url = $this->client_wrapper->get_direct_authentication_url( $atts );
+		$session_transfer_token = '';
+		if ( isset( $_GET['session_transfer_token'] ) && is_string( $_GET['session_transfer_token'] ) ) {
+			$candidate = wp_unslash( $_GET['session_transfer_token'] );
+			if ( preg_match( '/^[A-Za-z0-9_-]{16,256}$/', $candidate ) ) {
+				$session_transfer_token = $candidate;
+			}
+		}
 
-		$this->logger->log(
-			array(
-				'type'        => 'login_initiated_on_demand',
-				'redirect_to' => $redirect_to,
-			),
-			'login_initiator',
-			null
-		);
+		$auth_url = $this->client_wrapper->get_direct_authentication_url( $atts, $session_transfer_token );
 
 		wp_redirect( $auth_url );
 		exit;

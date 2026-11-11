@@ -103,7 +103,7 @@ class OpenID_Connect_Generic_Client {
 	}
 
 
-	public function request_authentication_token( $code ) {
+	public function request_authentication_token( $code, $code_verifier ) {
 
 
 		$parsed_url = parse_url( $this->endpoint_token );
@@ -117,6 +117,8 @@ class OpenID_Connect_Generic_Client {
 				'redirect_uri'  => $this->redirect_uri,
 				'grant_type'    => 'authorization_code',
 				'scope'         => $this->scope,
+				'code_verifier' => $code_verifier,
+				'auth_version'  => '2',
 			),
 			'headers' => array( 'Host' => $host ),
 		);
@@ -132,16 +134,6 @@ class OpenID_Connect_Generic_Client {
 		$response   = $this->http_request( 'POST', $this->endpoint_token, $request );
 		$processing_time = microtime( true ) - $start_time;
 
-		$this->logger->log(
-			array(
-				'type'         => 'authentication_request',
-				'endpoint'     => $this->endpoint_token,
-				'request_body' => $this->sanitize_request_body_for_logging( $request['body'] ?? array() ),
-			),
-			'request_authentication_token_debug',
-			$processing_time
-		);
-
 		if ( is_wp_error( $response ) ) {
 			$response->add( 'request_authentication_token', __( 'Request for authentication token failed.', 'daggerhart-openid-connect-generic' ) );
 		}
@@ -150,15 +142,20 @@ class OpenID_Connect_Generic_Client {
 	}
 
 
-	public function request_new_tokens( $refresh_token ) {
+	public function request_new_tokens( $refresh_token, $scope = '' ) {
 		$request = array(
 			'body' => array(
 				'refresh_token' => $refresh_token,
 				'client_id'     => $this->client_id,
 				'client_secret' => $this->client_secret,
 				'grant_type'    => 'refresh_token',
+				'auth_version'  => '2',
 			),
 		);
+
+		if ( ! empty( $scope ) ) {
+			$request['body']['scope'] = $scope;
+		}
 
 
 		$request = apply_filters( 'openid-connect-generic-alter-request', $request, 'refresh-token' );
@@ -166,16 +163,6 @@ class OpenID_Connect_Generic_Client {
 		$start_time = microtime( true );
 		$response   = $this->http_request( 'POST', $this->endpoint_token, $request );
 		$processing_time = microtime( true ) - $start_time;
-
-		$this->logger->log(
-			array(
-				'type'         => 'request_new_tokens_details',
-				'endpoint'     => $this->endpoint_token,
-				'request_body' => $this->sanitize_request_body_for_logging( $request['body'] ?? array() ),
-			),
-			'request_new_tokens_debug',
-			$processing_time
-		);
 
 		if ( is_wp_error( $response ) ) {
 			$response->add( 'refresh_token', __( 'Refresh token failed.', 'daggerhart-openid-connect-generic' ) );
@@ -191,6 +178,32 @@ class OpenID_Connect_Generic_Client {
 		}
 
 		return $request_body;
+	}
+
+
+	public function is_new_system_token( $jwt ) {
+		if ( ! is_string( $jwt ) || '' === $jwt ) {
+			return false;
+		}
+
+		$parts = explode( '.', $jwt );
+		if ( count( $parts ) !== 3 ) {
+			return false;
+		}
+
+		$header = json_decode( base64_decode( strtr( $parts[0], '-_', '+/' ) ), true );
+
+		return is_array( $header ) && isset( $header['alg'] ) && 'RS256' === $header['alg'];
+	}
+
+
+	public function new_pkce_verifier() {
+		return bin2hex( random_bytes( 32 ) );
+	}
+
+
+	public function pkce_challenge( $verifier ) {
+		return rtrim( strtr( base64_encode( hash( 'sha256', $verifier, true ) ), '+/', '-_' ), '=' );
 	}
 
 public function get_token_response( $token_result ) {
@@ -271,16 +284,6 @@ public function get_token_response( $token_result ) {
 	}
 
 
-	$this->logger->log(
-		array(
-			'type'                => 'token_response_success',
-			'http_code'           => $response_code,
-			'full_response'       => $token_response,
-		),
-		'get_token_response_success',
-		null
-	);
-
 	return $token_response;
 }
 
@@ -355,17 +358,6 @@ public function get_token_response( $token_result ) {
 		$processing_time = microtime( true ) - $start_time;
 
 
-		$this->logger->log(
-			array(
-				'type'         => 'userinfo_request',
-				'endpoint'     => $this->endpoint_userinfo,
-				'access_token' => $access_token,
-				'headers'      => $request['headers'],
-			),
-			'request_userinfo_debug',
-			$processing_time
-		);
-
 		if ( is_wp_error( $response ) ) {
 			$response->add( 'request_userinfo', __( 'Request for userinfo failed.', 'daggerhart-openid-connect-generic' ) );
 			return $response;
@@ -386,8 +378,6 @@ public function get_token_response( $token_result ) {
 					'type'              => 'userinfo_error',
 					'http_code'         => $response_code,
 					'http_message'      => wp_remote_retrieve_response_message( $response ),
-					'response_body'     => $response['body'] ?? '',
-					'response_headers'  => wp_remote_retrieve_headers( $response ),
 				),
 				'request_userinfo_error',
 				null
@@ -397,29 +387,19 @@ public function get_token_response( $token_result ) {
 		}
 
 
-		$userinfo_data = json_decode( $response['body'], true );
-		$this->logger->log(
-			array(
-				'type'           => 'userinfo_response_success',
-				'http_code'      => $response_code,
-				'full_response'  => $userinfo_data,
-				'response_body'  => $response['body'],
-				'response_headers' => wp_remote_retrieve_headers( $response ),
-			),
-			'request_userinfo_success',
-			null
-		);
-
 		return $response;
 	}
 
 
-	public function new_state( $redirect_to ) {
+	public function new_state( $redirect_to, $extra = array() ) {
 
 		$state = wp_generate_password( 32, false, false );
 		$state_value = array(
-			$state => array(
-				'redirect_to' => $redirect_to,
+			$state => array_merge(
+				$extra,
+				array(
+					'redirect_to' => $redirect_to,
+				)
 			),
 		);
 		set_transient( 'openid-connect-generic-state--' . $state, $state_value, $this->state_time_limit );

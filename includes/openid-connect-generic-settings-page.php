@@ -184,22 +184,22 @@ class OpenID_Connect_Generic_Settings_Page {
 			),
 			'client_secret'     => array(
 				'title'       => __( 'Client Secret Key', 'daggerhart-openid-connect-generic' ),
-				'description' => __( 'Arbitrary secret key the server expects from this client. Can be anything, but should be very unique.', 'daggerhart-openid-connect-generic' ),
-				'type'        => 'text',
+				'description' => __( 'The client secret from the SSO admin. It is never shown; leave the field empty to keep the saved secret.', 'daggerhart-openid-connect-generic' ),
+				'type'        => 'password',
 				'disabled'    => defined( 'OIDC_CLIENT_SECRET' ),
 				'section'     => 'client_settings',
 			),
 			'scope'             => array(
 				'title'       => __( 'OpenID Scope', 'daggerhart-openid-connect-generic' ),
 				'description' => __( 'Space separated list of scopes this client should access.', 'daggerhart-openid-connect-generic' ),
-				'example'     => 'email profile openid offline_access',
+				'example'     => 'openid profile email offline_access waitlist eshop',
 				'type'        => 'text',
 				'disabled'    => defined( 'OIDC_CLIENT_SCOPE' ),
 				'section'     => 'client_settings',
 			),
 			'discovery_url'    => array(
 				'title'       => __( 'Discovery URL', 'daggerhart-openid-connect-generic' ),
-				'description' => __( 'OpenID Connect discovery endpoint. All other endpoints (authorize, token, userinfo, logout) are resolved automatically from this URL.', 'daggerhart-openid-connect-generic' ),
+				'description' => __( 'OpenID Connect discovery endpoint. All other endpoints (authorize, token, userinfo, revocation, logout) are resolved automatically from this URL.', 'daggerhart-openid-connect-generic' ),
 				'example'     => 'https://example.com/.well-known/openid-configuration',
 				'type'        => 'text',
 				'disabled'    => defined( 'OIDC_DISCOVERY_URL' ),
@@ -355,14 +355,14 @@ class OpenID_Connect_Generic_Settings_Page {
 		),
 		'role_claim_key'        => array(
 			'title'       => __( 'Role Claim Key', 'daggerhart-openid-connect-generic' ),
-			'description' => __( 'The claim key to read role values from (e.g., "roles", "info.permissions", "groups").', 'daggerhart-openid-connect-generic' ),
-			'example'     => 'info.permissions',
+			'description' => __( 'The claim key to read role values from (e.g., "entitlements", "roles"). Several keys may be listed separated by commas; their values are combined.', 'daggerhart-openid-connect-generic' ),
+			'example'     => 'entitlements',
 			'type'        => 'text',
 			'section'     => 'role_mapping_settings',
 		),
 		'role_mappings'         => array(
 			'title'       => __( 'Role Mappings', 'daggerhart-openid-connect-generic' ),
-			'description' => __( 'Map OIDC claim values to WordPress roles. The first matching claim value will be used.', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Map OIDC claim values to WordPress roles. The first mapping (top to bottom) whose claim value the user has will be used.', 'daggerhart-openid-connect-generic' ),
 			'type'        => 'role_mappings_repeater',
 			'section'     => 'role_mapping_settings',
 		),
@@ -374,7 +374,7 @@ class OpenID_Connect_Generic_Settings_Page {
 		),
 		'claim_meta_mappings'   => array(
 			'title'       => __( 'Claim Meta Mappings', 'daggerhart-openid-connect-generic' ),
-			'description' => __( 'Map an OIDC claim key to a WordPress user meta key. Scalar claims are stored as-is; array claims are stored as a serialized array under one meta key. If the claim is absent from the userinfo response, the meta key is deleted.', 'daggerhart-openid-connect-generic' ),
+			'description' => __( 'Map an OIDC claim key to a WordPress user meta key. Scalar claims are stored as-is; array claims are stored as a serialized array under one meta key. Several mappings may target the same meta key: the first claim present (top to bottom) is used. If none of its claims is present in the userinfo response, the meta key is deleted.', 'daggerhart-openid-connect-generic' ),
 			'type'        => 'claim_meta_mappings_repeater',
 			'section'     => 'claim_meta_mapping_settings',
 		),
@@ -485,6 +485,8 @@ class OpenID_Connect_Generic_Settings_Page {
 						}
 					}
 				}
+			} elseif ( 'client_secret' === $key && ( ! isset( $input[ $key ] ) || '' === trim( $input[ $key ] ) ) ) {
+				$options[ $key ] = $this->settings->client_secret;
 			} elseif ( isset( $input[ $key ] ) ) {
 				$options[ $key ] = sanitize_text_field( trim( $input[ $key ] ) );
 			} else {
@@ -515,11 +517,6 @@ class OpenID_Connect_Generic_Settings_Page {
 				settings_fields( $this->settings_field_group );
 				do_settings_sections( $this->options_page_name );
 				submit_button();
-
-
-				if ( isset( $_GET['debug'] ) ) {
-					var_dump( $this->settings->get_values() );
-				}
 				?>
 			</form>
 
@@ -557,7 +554,8 @@ class OpenID_Connect_Generic_Settings_Page {
 			class="large-text<?php echo ( ! empty( $field['disabled'] ) && boolval( $field['disabled'] ) === true ) ? ' disabled' : ''; ?>"
 			name="<?php print esc_attr( $field['name'] ); ?>"
 			<?php echo ( ! empty( $field['disabled'] ) && boolval( $field['disabled'] ) === true ) ? ' disabled' : ''; ?>
-			value="<?php print esc_attr( $this->settings->{ $field['key'] } ); ?>">
+			<?php echo 'password' === $field['type'] ? 'autocomplete="new-password"' : ''; ?>
+			value="<?php print 'password' === $field['type'] ? '' : esc_attr( $this->settings->{ $field['key'] } ); ?>">
 		<?php
 		$this->do_field_description( $field );
 	}
@@ -745,7 +743,7 @@ class OpenID_Connect_Generic_Settings_Page {
 								   class="oidc-claim-value"
 								   name="<?php echo esc_attr( $field_name ); ?>[<?php echo esc_attr( $index ); ?>][claim_key]"
 								   value="<?php echo esc_attr( $claim_key ); ?>"
-								   placeholder="<?php esc_attr_e( 'Claim key (e.g., eshop.waitlist)', 'daggerhart-openid-connect-generic' ); ?>">
+								   placeholder="<?php esc_attr_e( 'Claim key (e.g., waitlist)', 'daggerhart-openid-connect-generic' ); ?>">
 							<span class="oidc-arrow">→</span>
 							<input type="text"
 								   class="oidc-claim-value"
@@ -767,7 +765,7 @@ class OpenID_Connect_Generic_Settings_Page {
 						   class="oidc-claim-value"
 						   name="<?php echo esc_attr( $field_name ); ?>[{{INDEX}}][claim_key]"
 						   value=""
-						   placeholder="<?php esc_attr_e( 'Claim key (e.g., eshop.waitlist)', 'daggerhart-openid-connect-generic' ); ?>">
+						   placeholder="<?php esc_attr_e( 'Claim key (e.g., waitlist)', 'daggerhart-openid-connect-generic' ); ?>">
 					<span class="oidc-arrow">→</span>
 					<input type="text"
 						   class="oidc-claim-value"

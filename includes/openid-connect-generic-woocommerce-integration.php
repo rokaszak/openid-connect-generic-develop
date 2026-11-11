@@ -310,21 +310,7 @@ class OpenID_Connect_Generic_WooCommerce_Integration {
 		$logger = $this->client_wrapper->get_logger();
 
 
-		$logger->log(
-			array(
-				'message' => 'WooCommerce sync userinfo action started',
-			),
-			'woocommerce_sync_start'
-		);
-
-
 		if ( ! is_user_logged_in() ) {
-			$logger->log(
-				array(
-					'message' => 'Sync userinfo failed: User not logged in',
-				),
-				'woocommerce_sync_error'
-			);
 			wc_add_notice( __( 'You must be logged in to sync user information.', 'daggerhart-openid-connect-generic' ), 'error' );
 			wp_safe_redirect( wc_get_page_permalink( 'myaccount' ) . 'edit-account/' );
 			exit;
@@ -446,7 +432,7 @@ class OpenID_Connect_Generic_WooCommerce_Integration {
 			if ( $email_exists && $email_exists !== $user_id ) {
 				$logger->log(
 					array(
-						'message' => sprintf( 'Sync userinfo failed: Email address %s is already in use by another account (user ID: %d)', $email, $email_exists ),
+						'message' => sprintf( 'Sync userinfo failed: the provider email is already in use by another account (user ID: %d)', $email_exists ),
 					),
 					'woocommerce_sync_error'
 				);
@@ -488,13 +474,13 @@ class OpenID_Connect_Generic_WooCommerce_Integration {
 
 		$changed_fields = array();
 		if ( ! empty( $email ) && $email !== $current_email ) {
-			$changed_fields[] = sprintf( 'email: %s -> %s', $current_email, $email );
+			$changed_fields[] = 'email';
 		}
 		if ( $first_name !== $current_first_name ) {
-			$changed_fields[] = sprintf( 'first_name: %s -> %s', $current_first_name ?: '(empty)', $first_name ?: '(empty)' );
+			$changed_fields[] = 'first_name';
 		}
 		if ( $last_name !== $current_last_name ) {
-			$changed_fields[] = sprintf( 'last_name: %s -> %s', $current_last_name ?: '(empty)', $last_name ?: '(empty)' );
+			$changed_fields[] = 'last_name';
 		}
 
 

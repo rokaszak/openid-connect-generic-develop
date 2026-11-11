@@ -79,8 +79,8 @@ class OpenID_Connect_Generic_Login_Form {
 	public function handle_login_page( $message ) {
 
 		if ( isset( $_GET['login-error'] ) ) {
-			$error_message = ! empty( $_GET['message'] ) ? sanitize_text_field( wp_unslash( $_GET['message'] ) ) : 'Unknown error.';
-			$message .= $this->make_error_output( sanitize_text_field( wp_unslash( $_GET['login-error'] ) ), $error_message );
+			$error_code = preg_replace( '/[^a-z0-9_-]/i', '', substr( (string) wp_unslash( $_GET['login-error'] ), 0, 64 ) );
+			$message .= $this->make_error_output( $error_code, 'Prisijungti nepavyko. Bandyk dar kartą.' );
 		}
 
 
